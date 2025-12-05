@@ -107,7 +107,7 @@ namespace vix::websocket
             {
                 if (!ec && !stopRequested_)
                 {
-                    // On déplace le tcp::socket vers la Session
+                    // on transfère le tcp::socket (par valeur) à la Session
                     handle_client(std::move(*socket));
                 }
 
@@ -121,7 +121,7 @@ namespace vix::websocket
     void Server::handle_client(tcp::socket socket)
     {
         auto session = std::make_shared<Session>(
-            std::move(socket),
+            std::move(socket), // move dans ws::stream
             wsConfig_,
             router_,
             executor_);

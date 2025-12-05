@@ -5,18 +5,15 @@ namespace vix::websocket
     static vix::utils::Logger &logger = vix::utils::Logger::getInstance();
 
     Session::Session(tcp::socket socket,
-                     Config cfg,
+                     const Config &cfg,
                      std::shared_ptr<Router> router,
                      std::shared_ptr<vix::executor::IExecutor> executor)
-        : ws_(std::move(socket)), // le stream possède le socket
-          cfg_(std::move(cfg)),
-          router_(std::move(router)),
-          executor_(std::move(executor)),
-          buffer_(),
-          idleTimer_(ws_.get_executor()), // timer sur le même executor que le stream
+        : ws_(std::move(socket)) // <-- move dans le stream
+          ,
+          cfg_(cfg), router_(std::move(router)), executor_(std::move(executor)), buffer_(), idleTimer_(ws_.get_executor()) // <-- timer attaché à l'executor du stream
+          ,
           closing_(false)
     {
-        // Basic server-side options
         ws_.read_message_max(cfg_.maxMessageSize);
 
         if (cfg_.enablePerMessageDeflate)
@@ -31,7 +28,7 @@ namespace vix::websocket
                 {
                     (void)kind;
                     (void)payload;
-                    // Beast gère déjà pong automatiquement.
+                    // Beast gère déjà ping/pong, on ne fait rien pour l'instant.
                 });
         }
     }
@@ -46,7 +43,6 @@ namespace vix::websocket
     {
         auto self = shared_from_this();
 
-        // Simple WebSocket accept: Beast lit la requête HTTP upgrade depuis le socket.
         ws_.async_accept(
             [this, self](const boost::system::error_code &ec)
             {
@@ -66,6 +62,7 @@ namespace vix::websocket
         }
 
         logger.log(Logger::Level::INFO, "[WebSocket][Session] Handshake OK");
+
         if (router_)
             router_->handle_open(*this);
 
@@ -93,7 +90,8 @@ namespace vix::websocket
         {
             if (ec == ws::error::closed)
             {
-                logger.log(Logger::Level::INFO, "[WebSocket][Session] Closed by client");
+                logger.log(Logger::Level::INFO,
+                           "[WebSocket][Session] Closed by client");
             }
             else if (ec != boost::asio::error::operation_aborted)
             {
@@ -109,8 +107,8 @@ namespace vix::websocket
         logger.log(Logger::Level::DEBUG,
                    "[WebSocket][Session] Received {} bytes", bytes);
 
-        // On convertit en string, simple pour la démo
-        std::string data = beast::buffers_to_string(buffer_.data());
+        // on convertit en string puis on vide le buffer
+        auto data = beast::buffers_to_string(buffer_.data());
         buffer_.consume(buffer_.size());
 
         if (router_)
@@ -178,8 +176,9 @@ namespace vix::websocket
             {
                 self->do_write_text(std::move(payload));
             },
-            vix::executor::TaskOptions{.priority = 1,
-                                       .timeout = std::chrono::milliseconds{0}});
+            vix::executor::TaskOptions{
+                .priority = 1,
+                .timeout = std::chrono::milliseconds{0}});
     }
 
     void Session::send_binary(const void *data, std::size_t size)
@@ -197,13 +196,14 @@ namespace vix::websocket
             {
                 self->do_write_binary(std::move(payload));
             },
-            vix::executor::TaskOptions{.priority = 1,
-                                       .timeout = std::chrono::milliseconds{0}});
+            vix::executor::TaskOptions{
+                .priority = 1,
+                .timeout = std::chrono::milliseconds{0}});
     }
 
     void Session::do_write_text(std::string payload)
     {
-        if (closing_ || !ws_.next_layer().is_open())
+        if (closing_)
             return;
 
         auto self = shared_from_this();
@@ -211,7 +211,9 @@ namespace vix::websocket
         ws_.text(true);
         ws_.async_write(
             net::buffer(payload),
-            [this, self, payload = std::move(payload)](const boost::system::error_code &ec, std::size_t bytes)
+            [this, self, payload = std::move(payload)](
+                const boost::system::error_code &ec,
+                std::size_t bytes)
             {
                 (void)payload;
                 on_write_complete(ec, bytes);
@@ -220,7 +222,7 @@ namespace vix::websocket
 
     void Session::do_write_binary(std::vector<unsigned char> payload)
     {
-        if (closing_ || !ws_.next_layer().is_open())
+        if (closing_)
             return;
 
         auto self = shared_from_this();
@@ -228,14 +230,17 @@ namespace vix::websocket
         ws_.binary(true);
         ws_.async_write(
             net::buffer(payload.data(), payload.size()),
-            [this, self, payload = std::move(payload)](const boost::system::error_code &ec, std::size_t bytes)
+            [this, self, payload = std::move(payload)](
+                const boost::system::error_code &ec,
+                std::size_t bytes)
             {
                 (void)payload;
                 on_write_complete(ec, bytes);
             });
     }
 
-    void Session::on_write_complete(const boost::system::error_code &ec, std::size_t bytes)
+    void Session::on_write_complete(const boost::system::error_code &ec,
+                                    std::size_t bytes)
     {
         if (ec)
         {

@@ -1,3 +1,5 @@
+
+
 #ifndef VIX_WEBSOCKET_SESSION_HPP
 #define VIX_WEBSOCKET_SESSION_HPP
 
@@ -16,8 +18,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <chrono>
+#include <vector>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -41,7 +43,7 @@ namespace vix::websocket
     {
     public:
         Session(tcp::socket socket,
-                Config cfg,
+                const Config &cfg,
                 std::shared_ptr<Router> router,
                 std::shared_ptr<vix::executor::IExecutor> executor);
 
@@ -50,7 +52,7 @@ namespace vix::websocket
         /// Start handshake then message loop.
         void run();
 
-        /// Send a text frame (post via executor).
+        /// Send a text frame (thread-safe via executor).
         void send_text(std::string_view text);
 
         /// Send a binary frame.
@@ -75,13 +77,15 @@ namespace vix::websocket
         void on_write_complete(const boost::system::error_code &ec, std::size_t bytes);
 
     private:
-        ws::stream<tcp::socket> ws_;                         //!< WebSocket stream (owns the TCP socket)
-        Config cfg_;                                         //!< Per-session tuning.
-        std::shared_ptr<Router> router_;                     //!< Event callbacks for this session.
-        std::shared_ptr<vix::executor::IExecutor> executor_; //!< For user work / writes.
+        // Le stream POSSÈDE le socket (NextLayer = tcp::socket)
+        ws::stream<tcp::socket> ws_;
 
-        beast::flat_buffer buffer_;   //!< Read buffer.
-        net::steady_timer idleTimer_; //!< Idle timeout timer.
+        Config cfg_;
+        std::shared_ptr<Router> router_;
+        std::shared_ptr<vix::executor::IExecutor> executor_;
+
+        beast::flat_buffer buffer_;
+        net::steady_timer idleTimer_;
         bool closing_ = false;
 
         using Logger = vix::utils::Logger;

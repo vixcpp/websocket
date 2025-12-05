@@ -56,7 +56,7 @@ namespace vix::websocket
         void init_acceptor(unsigned short port);
         void start_accept();
         void start_io_threads();
-        void handle_client(tcp::socket socket); // ✅ socket par valeur
+        void handle_client(tcp::socket socket);
 
         int compute_io_thread_count() const;
 
