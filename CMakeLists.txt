@@ -17,8 +17,9 @@
 #   - optional JSON backend (vix::json / vix_json)
 #
 # Options:
-#   - VIX_WEBSOCKET_WITH_JSON : AUTO|ON|OFF (default: AUTO)
-#   - VIX_WEBSOCKET_FETCH_CORE: Auto-fetch vix::core if missing (default ON)
+#   - VIX_WEBSOCKET_WITH_JSON  : AUTO|ON|OFF (default: AUTO)
+#   - VIX_WEBSOCKET_FETCH_CORE : Auto-fetch vix::core if missing (default ON)
+#   - VIX_WEBSOCKET_FETCH_UTILS: Auto-fetch vix::utils if missing (default ON)
 #
 # Installation/Export:
 #   - Contributes to the umbrella export-set `VixTargets`
@@ -45,7 +46,7 @@ set(CMAKE_CXX_FLAGS_DEBUG   "${GLOBAL_CXX_FLAGS} -g")
 file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
 # ------------------------ Core dependency ----------------------------
-# We need vix::core (which itself brings vix::utils, Boost, OpenSSL, ...).
+# We need vix::core (which itself may bring vix::utils, Boost, OpenSSL, ...).
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 
 if (NOT TARGET vix::core)
@@ -69,6 +70,37 @@ if (NOT TARGET vix::core)
 endif()
 
 set(VIX_CORE_TARGET vix::core)
+
+# ------------------------ Utils dependency (robust) ------------------
+# WebSocket code utilise directement vix::utils::Logger, donc on a
+# besoin d'un target utils visible pour les includes + linkage.
+option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
+
+if (NOT TARGET vix::utils AND NOT TARGET vix::utils)
+  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
+    message(STATUS "[websocket] Adding utils from umbrella: ../utils")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
+  elseif (VIX_WEBSOCKET_FETCH_UTILS)
+    include(FetchContent)
+    message(STATUS "[websocket] Fetching vix::utils via FetchContent")
+    # ⚠️ aligne le tag avec utils
+    FetchContent_Declare(vix_utils
+      GIT_REPOSITORY https://github.com/vixcpp/utils.git
+      GIT_TAG        v1.7.1
+    )
+    FetchContent_MakeAvailable(vix_utils)
+  else()
+    message(FATAL_ERROR
+      "vix::utils not found. Enable VIX_WEBSOCKET_FETCH_UTILS=ON or "
+      "provide the target before websocket.")
+  endif()
+endif()
+
+# Normalisation du nom (comme dans core)
+set(VIX_UTILS_TARGET vix::utils)
+if (NOT TARGET ${VIX_UTILS_TARGET} AND TARGET vix::utils)
+  set(VIX_UTILS_TARGET vix::utils)
+endif()
 
 # ------------------------ JSON linkage policy ------------------------
 # AUTO: link if a known JSON target exists, else define VIX_WEBSOCKET_NO_JSON
@@ -129,18 +161,17 @@ endfunction()
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
 
-  # If needed later, you can add extra deps here (e.g. standalone Asio).
-  # find_package(Threads REQUIRED)  # typical for async I/O
+  # Beast/WebSocket repose sur Boost.System pour les codes d'erreur
+  find_package(Boost 1.78 REQUIRED COMPONENTS system)
 
-    add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
+  add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
   # Canonical target
   add_library(vix::websocket ALIAS vix_websocket)
   # Short alias (ergonomic)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
-
-  # Public headers for #include <vix/websocket/...>
+  # Public headers pour #include <vix/websocket/...>
   target_include_directories(vix_websocket
     PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -150,6 +181,8 @@ if (WEBSOCKET_SOURCES)
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
+      ${VIX_UTILS_TARGET}
+      Boost::system
   )
 
   # Optional JSON linkage
@@ -193,6 +226,7 @@ else()
 
   target_link_libraries(vix_websocket INTERFACE
     ${VIX_CORE_TARGET}
+    ${VIX_UTILS_TARGET}
   )
 
   vix_websocket_try_link_json(vix_websocket INTERFACE)
@@ -214,9 +248,12 @@ if (WEBSOCKET_SOURCES)
 else()
   message(STATUS "Mode: HEADER-ONLY / no sources")
 endif()
-message(STATUS "JSON policy:        ${VIX_WEBSOCKET_WITH_JSON}")
-message(STATUS "Core target:        ${VIX_CORE_TARGET}")
-message(STATUS "Include dir:        ${CMAKE_CURRENT_SOURCE_DIR}/include")
-message(STATUS "Sanitizers enabled: ${VIX_ENABLE_SANITIZERS}")
-message(STATUS "Build type:         ${CMAKE_BUILD_TYPE}")
+message(STATUS "Core target:          ${VIX_CORE_TARGET}")
+message(STATUS "Utils target:         ${VIX_UTILS_TARGET}")
+message(STATUS "JSON policy:          ${VIX_WEBSOCKET_WITH_JSON}")
+message(STATUS "Include dir:          ${CMAKE_CURRENT_SOURCE_DIR}/include")
+message(STATUS "Sanitizers enabled:   ${VIX_ENABLE_SANITIZERS}")
+message(STATUS "Build type:           ${CMAKE_BUILD_TYPE}")
+message(STATUS "Fetch core enabled:   ${VIX_WEBSOCKET_FETCH_CORE}")
+message(STATUS "Fetch utils enabled:  ${VIX_WEBSOCKET_FETCH_UTILS}")
 message(STATUS "------------------------------------------------------")
