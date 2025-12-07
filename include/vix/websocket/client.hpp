@@ -1,20 +1,26 @@
-#ifndef VIX_WEBSOCKET_SIMPLE_CLIENT_HPP
-#define VIX_WEBSOCKET_SIMPLE_CLIENT_HPP
+#ifndef VIX_WEBSOCKET_CLIENT_HPP
+#define VIX_WEBSOCKET_CLIENT_HPP
 
 /**
- * @file simple_client.hpp
- * @brief High-level WebSocket client for Vix.cpp (Node.js-style).
+ * @file client.hpp
+ * @brief High-level WebSocket client with reconnection and heartbeat support.
  *
- * Exemple d'utilisation :
+ * This component:
+ *   - manages the full client lifecycle (resolve, connect, handshake, read)
+ *   - exposes a simple event-driven API (open, message, close, error)
+ *   - supports optional automatic reconnection and heartbeat (ping)
+ *   - provides helpers for { type, payload } messages using vix::json::kvs
  *
- *   auto client = vix::websocket::SimpleClient::create("localhost", "9090", "/");
+ * Typical usage:
+ *
+ *   auto client = vix::websocket::Client::create("localhost", "9090", "/");
  *
  *   client->on_open([]{
- *       std::cout << "Connected to server\n";
+ *       std::cout << "Connected to server\\n";
  *   });
  *
  *   client->on_message([](const std::string &msg){
- *       std::cout << "Server says: " << msg << "\n";
+ *       std::cout << "Server says: " << msg << "\\n";
  *   });
  *
  *   client->enable_auto_reconnect(true, std::chrono::seconds(3));
@@ -47,6 +53,7 @@
 
 #include <nlohmann/json.hpp>
 #include <vix/json/Simple.hpp>
+#include <vix/websocket/protocol.hpp> // vix::websocket::detail::ws_kvs_to_nlohmann
 
 namespace vix::websocket
 {
@@ -55,136 +62,7 @@ namespace vix::websocket
     namespace websocket = beast::websocket;
     using tcp = net::ip::tcp;
 
-    // ------------------------------------------------------------
-    // Helpers JSON internes (esprit vix::json)
-    // ------------------------------------------------------------
-
-    inline nlohmann::json ws_token_to_nlohmann(const vix::json::token &t)
-    {
-        nlohmann::json j = nullptr;
-        std::visit(
-            [&](auto &&val)
-            {
-                using T = std::decay_t<decltype(val)>;
-                if constexpr (std::is_same_v<T, std::monostate>)
-                {
-                    j = nullptr;
-                }
-                else if constexpr (std::is_same_v<T, bool> ||
-                                   std::is_same_v<T, long long> ||
-                                   std::is_same_v<T, double> ||
-                                   std::is_same_v<T, std::string>)
-                {
-                    j = val;
-                }
-                else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::array_t>>)
-                {
-                    if (!val)
-                    {
-                        j = nullptr;
-                        return;
-                    }
-                    j = nlohmann::json::array();
-                    for (const auto &el : val->elems)
-                    {
-                        j.push_back(ws_token_to_nlohmann(el));
-                    }
-                }
-                else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::kvs>>)
-                {
-                    if (!val)
-                    {
-                        j = nullptr;
-                        return;
-                    }
-                    nlohmann::json obj = nlohmann::json::object();
-                    const auto &a = val->flat;
-                    const size_t n = a.size() - (a.size() % 2);
-                    for (size_t i = 0; i < n; i += 2)
-                    {
-                        const auto &k = a[i].v;
-                        const auto &vv = a[i + 1];
-                        if (!std::holds_alternative<std::string>(k))
-                            continue;
-                        const auto &key = std::get<std::string>(k);
-                        obj[key] = ws_token_to_nlohmann(vv);
-                    }
-                    j = std::move(obj);
-                }
-                else
-                {
-                    j = nullptr;
-                }
-            },
-            t.v);
-        return j;
-    }
-
-    inline nlohmann::json ws_kvs_to_nlohmann(const vix::json::kvs &list)
-    {
-        nlohmann::json obj = nlohmann::json::object();
-        const auto &a = list.flat;
-        const size_t n = a.size() - (a.size() % 2);
-
-        for (size_t i = 0; i < n; i += 2)
-        {
-            const auto &k = a[i].v;
-            const auto &v = a[i + 1];
-
-            if (!std::holds_alternative<std::string>(k))
-                continue;
-            const std::string &key = std::get<std::string>(k);
-
-            obj[key] = ws_token_to_nlohmann(v);
-        }
-        return obj;
-    }
-
-    // ------------------------------------------------------------
-    // JsonMessage : protocole { type, payload{ user, text } }
-    // ------------------------------------------------------------
-
-    struct JsonMessage
-    {
-        std::string raw;
-        std::string type;
-        std::string user;
-        std::string text;
-
-        static JsonMessage parse(const std::string &s)
-        {
-            JsonMessage m;
-            m.raw = s;
-
-            try
-            {
-                auto j = nlohmann::json::parse(s);
-                if (!j.is_object())
-                    return m;
-
-                m.type = j.value("type", "");
-
-                if (j.contains("payload") && j["payload"].is_object())
-                {
-                    const auto &p = j["payload"];
-                    m.user = p.value("user", "");
-                    m.text = p.value("text", "");
-                }
-            }
-            catch (...)
-            {
-                // JSON invalide → on garde juste raw
-            }
-
-            return m;
-        }
-    };
-
-    // ------------------------------------------------------------
-    // SimpleClient
-    // ------------------------------------------------------------
-
-    class SimpleClient : public std::enable_shared_from_this<SimpleClient>
+    class Client : public std::enable_shared_from_this<Client>
     {
     public:
         using OpenHandler = std::function<void()>;
@@ -192,13 +70,12 @@ namespace vix::websocket
         using CloseHandler = std::function<void()>;
         using ErrorHandler = std::function<void(const boost::system::error_code &)>;
 
-        /// Fabrique recommandée (garantit enable_shared_from_this)
-        static std::shared_ptr<SimpleClient> create(std::string host,
-                                                    std::string port,
-                                                    std::string target = "/")
+        static std::shared_ptr<Client> create(std::string host,
+                                              std::string port,
+                                              std::string target = "/")
         {
-            return std::shared_ptr<SimpleClient>(
-                new SimpleClient(std::move(host), std::move(port), std::move(target)));
+            return std::shared_ptr<Client>(
+                new Client(std::move(host), std::move(port), std::move(target)));
         }
 
         // ───────────── Handlers / callbacks ─────────────
@@ -208,9 +85,9 @@ namespace vix::websocket
         void on_close(CloseHandler cb) { onClose_ = std::move(cb); }
         void on_error(ErrorHandler cb) { onError_ = std::move(cb); }
 
-        // ───────────── Config avancée ─────────────
+        // ───────────── Advanced configuration ─────────────
 
-        /// Active/désactive la reconnexion automatique
+        /// Enable / disable automatic reconnection.
         void enable_auto_reconnect(bool enable,
                                    std::chrono::seconds delay = std::chrono::seconds{3})
         {
@@ -218,7 +95,7 @@ namespace vix::websocket
             reconnectDelay_ = delay;
         }
 
-        /// Active l'envoi périodique de ping (heartbeat) côté client
+        /// Enable periodic ping (heartbeat) from the client.
         void enable_heartbeat(std::chrono::seconds interval)
         {
             if (interval.count() <= 0)
@@ -230,9 +107,9 @@ namespace vix::websocket
             heartbeatEnabled_ = true;
         }
 
-        // ───────────── Connexion / boucle I/O ─────────────
+        // ───────────── Connection / I/O loop ─────────────
 
-        /// Lance la résolution, la connexion, le handshake et le thread I/O.
+        /// Start resolve, connect, handshake and I/O thread.
         void connect()
         {
             if (!alive_ || closing_)
@@ -240,13 +117,13 @@ namespace vix::websocket
 
             bool expected = false;
             if (!started_.compare_exchange_strong(expected, true))
-                return; // déjà lancé
+                return; // already running
 
             init_io();
 
             auto self = shared_from_this();
 
-            // Thread I/O qui fait tourner l'event loop
+            // I/O thread driving the event loop
             ioThread_ = std::thread([self]()
                                     {
                 try
@@ -259,12 +136,12 @@ namespace vix::websocket
                     self->emit_error(ec, e.what());
                 } });
 
-            // On poste le début du pipeline (resolve) dans l'io_context
+            // Bootstrap pipeline (resolve) on io_context
             net::post(*ioc_, [self]()
                       { self->do_resolve(); });
         }
 
-        /// Envoie un message texte (thread-safe via executor)
+        /// Send a text message (thread-safe via executor).
         void send_text(const std::string &text)
         {
             if (!connected_ || closing_ || !ws_)
@@ -289,19 +166,11 @@ namespace vix::websocket
                       });
         }
 
-        /// Envoie un JSON brut (helper interne)
-        void send_json(const nlohmann::json &j)
-        {
-            send_text(j.dump());
-        }
-
-        /// Envoie un message protocolaire { type, payload } en JSON
-        /// payload en "esprit Vix" via vix::json::token
+        /// Send a { type, payload } JSON message using vix::json::kvs.
         void send_json_message(const std::string &type,
-                               std::initializer_list<vix::json::token> payloadTokens)
+                               const vix::json::kvs &payload)
         {
-            vix::json::kvs payload{payloadTokens};
-            nlohmann::json payloadJson = ws_kvs_to_nlohmann(payload);
+            nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(payload);
 
             nlohmann::json j{
                 {"type", type},
@@ -311,7 +180,21 @@ namespace vix::websocket
             send_text(j.dump());
         }
 
-        /// Envoie un ping explicite (en plus du heartbeat éventuel)
+        /// Send a { type, payload } JSON message using vix::json::token list.
+        ///
+        /// Example:
+        ///   client->send_json_message("chat.message", {
+        ///       "user", "alice",
+        ///       "text", "hello",
+        ///   });
+        void send_json_message(const std::string &type,
+                               std::initializer_list<vix::json::token> payloadTokens)
+        {
+            vix::json::kvs payload{payloadTokens};
+            send_json_message(type, payload);
+        }
+
+        /// Explicit ping (in addition to optional heartbeat).
         void send_ping()
         {
             if (!connected_ || closing_ || !ws_)
@@ -323,7 +206,7 @@ namespace vix::websocket
                       {
                           if (!self->ws_ || self->closing_)
                               return;
-                          websocket::ping_data data; // payload vide
+                          websocket::ping_data data; // empty payload
                           self->ws_->async_ping(
                               data,
                               [self](const boost::system::error_code &ec)
@@ -337,7 +220,7 @@ namespace vix::websocket
                       });
         }
 
-        /// Fermeture propre
+        /// Graceful shutdown.
         void close()
         {
             if (closing_.exchange(true))
@@ -377,7 +260,7 @@ namespace vix::websocket
                 heartbeatThread_.join();
         }
 
-        ~SimpleClient()
+        ~Client()
         {
             try
             {
@@ -389,16 +272,16 @@ namespace vix::websocket
         }
 
     private:
-        SimpleClient(std::string host, std::string port, std::string target)
+        Client(std::string host, std::string port, std::string target)
             : host_(std::move(host)), port_(std::move(port)), target_(std::move(target))
         {
         }
 
-        // ───────────── Initialisation Asio/Beast ─────────────
+        // ───────────── Asio / Beast initialization ─────────────
 
         void init_io()
         {
-            // Si on reconnecte, s'assurer que tout est bien stoppé
+            // On reconnect, ensure previous context is fully stopped
             if (ioc_)
                 ioc_->stop();
             if (ioThread_.joinable())
@@ -416,7 +299,7 @@ namespace vix::websocket
             heartbeatStop_ = false;
         }
 
-        // ───────────── Pipeline interne : resolve → connect → handshake → read ─────────────
+        // ───────────── Pipeline: resolve → connect → handshake → read ─────────────
 
         void do_resolve()
         {
@@ -440,7 +323,6 @@ namespace vix::websocket
         {
             auto self = shared_from_this();
 
-            // Utilise la surcharge : (socket, EndpointSequence, handler)
             net::async_connect(
                 ws_->next_layer(),
                 results,
@@ -521,7 +403,7 @@ namespace vix::websocket
                 });
         }
 
-        // ───────────── Heartbeat (ping/pong périodique) ─────────────
+        // ───────────── Heartbeat (periodic ping) ─────────────
 
         void start_heartbeat()
         {
@@ -541,21 +423,21 @@ namespace vix::websocket
                 } });
         }
 
-        // ───────────── Reconnexion automatique ─────────────
+        // ───────────── Automatic reconnection ─────────────
 
         void maybe_schedule_reconnect(const boost::system::error_code &ec)
         {
             if (!autoReconnect_ || closing_ || !alive_)
                 return;
 
-            // Erreurs "normales" où on ne reconnecte pas automatiquement
+            // "Normal" closure: do not reconnect automatically.
             if (ec == websocket::error::closed ||
                 ec == net::error::operation_aborted)
                 return;
 
             bool expected = false;
             if (!reconnectScheduled_.compare_exchange_strong(expected, true))
-                return; // déjà en attente
+                return; // already scheduled
 
             auto self = shared_from_this();
             std::thread([self]()
@@ -568,13 +450,13 @@ namespace vix::websocket
                     return;
                 }
 
-                self->started_ = false;
+                self->started_            = false;
                 self->reconnectScheduled_ = false;
                 self->connect(); })
                 .detach();
         }
 
-        // ───────────── Erreurs ─────────────
+        // ───────────── Error reporting ─────────────
 
         void emit_error(const boost::system::error_code &ec,
                         const char *stage)
@@ -585,13 +467,13 @@ namespace vix::websocket
             }
             else
             {
-                std::cerr << "[SimpleClient][" << stage
+                std::cerr << "[Client][" << stage
                           << "] error: " << ec.message() << "\n";
             }
         }
 
     private:
-        // Config de connexion
+        // Connection config
         std::string host_;
         std::string port_;
         std::string target_;
@@ -615,7 +497,7 @@ namespace vix::websocket
         std::atomic<bool> heartbeatStop_{false};
         std::chrono::seconds heartbeatInterval_{30};
 
-        // Reconnexion
+        // Reconnection
         std::atomic<bool> autoReconnect_{false};
         std::chrono::seconds reconnectDelay_{3};
         std::atomic<bool> reconnectScheduled_{false};
@@ -629,4 +511,4 @@ namespace vix::websocket
 
 } // namespace vix::websocket
 
-#endif // VIX_WEBSOCKET_SIMPLE_CLIENT_HPP
+#endif // VIX_WEBSOCKET_CLIENT_HPP

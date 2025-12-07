@@ -1,14 +1,14 @@
-#ifndef VIX_WEBSOCKET_SERVER_HPP
-#define VIX_WEBSOCKET_SERVER_HPP
+#ifndef VIX_WEBSOCKET_ENGINE_HPP
+#define VIX_WEBSOCKET_ENGINE_HPP
 
 /**
  * @file websocket.hpp
- * @brief High-level WebSocket server for Vix.cpp.
+ * @brief Low-level WebSocket server engine.
  *
- * Dedicated WebSocket server:
- *  - owns an io_context_
+ * This component:
+ *  - owns the io_context
  *  - accepts TCP connections
- *  - creates vix::websocket::Session for each client
+ *  - creates vix::websocket::Session instances for each client
  */
 
 #include <memory>
@@ -32,14 +32,14 @@ namespace vix::websocket
     using tcp = net::ip::tcp;
     using Logger = vix::utils::Logger;
 
-    class Server
+    class LowLevelServer
     {
     public:
-        Server(vix::config::Config &coreConfig,
-               std::shared_ptr<vix::executor::IExecutor> executor,
-               std::shared_ptr<Router> router);
+        LowLevelServer(vix::config::Config &coreConfig,
+                       std::shared_ptr<vix::executor::IExecutor> executor,
+                       std::shared_ptr<Router> router);
 
-        ~Server();
+        ~LowLevelServer();
 
         /// Start accepting connections and running io_context_ in background threads.
         void run();
@@ -75,4 +75,4 @@ namespace vix::websocket
 
 } // namespace vix::websocket
 
-#endif // VIX_WEBSOCKET_SERVER_HPP
+#endif // VIX_WEBSOCKET_ENGINE_HPP

@@ -31,12 +31,10 @@ namespace vix::websocket
     {
         if (messageHandler_)
         {
-            // On transfère la propriété au callback – aucune vue pendante.
             messageHandler_(session, std::move(payload));
         }
         else
         {
-            // Default: simple echo (utile en debug, évite un "silence").
             session.send_text(payload);
         }
     }

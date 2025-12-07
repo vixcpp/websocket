@@ -10,7 +10,6 @@ namespace vix::websocket
                      std::shared_ptr<vix::executor::IExecutor> executor)
         : ws_(std::move(socket)), cfg_(cfg), router_(std::move(router)), executor_(std::move(executor)), buffer_(), idleTimer_(ws_.get_executor()), closing_(false), writeQueue_(), writeInProgress_(false)
     {
-        // TCP_NODELAY pour réduire la latence
         {
             boost::system::error_code ec;
             ws_.next_layer().set_option(tcp::no_delay(true), ec);
@@ -18,7 +17,6 @@ namespace vix::websocket
 
         ws_.read_message_max(cfg_.maxMessageSize);
 
-        // Pré-alloue le buffer une fois pour toutes (si ton type le permet)
         buffer_.reserve(cfg_.maxMessageSize);
 
         if (cfg_.enablePerMessageDeflate)
@@ -33,7 +31,6 @@ namespace vix::websocket
                 {
                     (void)kind;
                     (void)payload;
-                    // Beast gère déjà ping/pong
                 });
         }
     }
@@ -112,13 +109,11 @@ namespace vix::websocket
         logger.log(Logger::Level::DEBUG,
                    "[WebSocket][Session] Received {} bytes", bytes);
 
-        // on convertit en string puis on vide le buffer
         auto data = beast::buffers_to_string(buffer_.data());
         buffer_.consume(buffer_.size());
 
         if (router_)
         {
-            // ✅ on transmet la string par valeur au Router
             router_->handle_message(*this, std::move(data));
         }
 
@@ -174,13 +169,11 @@ namespace vix::websocket
         if (closing_)
             return;
 
-        // On est déjà sur le même executor que ws_, donc pas de lock nécessaire.
         writeQueue_.push_back(PendingMessage{
             .isBinary = isBinary,
             .data = std::move(payload),
         });
 
-        // Si aucune écriture en cours, on démarre le cycle
         if (!writeInProgress_)
         {
             do_write_next();
@@ -225,7 +218,6 @@ namespace vix::websocket
         auto self = shared_from_this();
         std::string payload{text};
 
-        // On poste sur l'executor du stream → aucune écriture concurrente
         net::post(
             ws_.get_executor(),
             [self, payload = std::move(payload)]() mutable
@@ -262,7 +254,6 @@ namespace vix::websocket
                 logger.log(Logger::Level::WARN,
                            "[WebSocket][Session] Write error: {}", ec.message());
             }
-            // En cas d'erreur, on stoppe le flux
             closing_ = true;
             writeQueue_.clear();
             return;
@@ -271,7 +262,6 @@ namespace vix::websocket
         logger.log(Logger::Level::DEBUG,
                    "[WebSocket][Session] Sent {} bytes", bytes);
 
-        // On enchaîne la suite des messages dans la file
         do_write_next();
     }
 

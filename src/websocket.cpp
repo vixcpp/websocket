@@ -34,9 +34,9 @@ namespace vix::websocket
         }
     } // namespace
 
-    Server::Server(vix::config::Config &coreConfig,
-                   std::shared_ptr<vix::executor::IExecutor> executor,
-                   std::shared_ptr<Router> router)
+    LowLevelServer::LowLevelServer(vix::config::Config &coreConfig,
+                                   std::shared_ptr<vix::executor::IExecutor> executor,
+                                   std::shared_ptr<Router> router)
         : coreConfig_(coreConfig),
           wsConfig_(Config::from_core(coreConfig_)),
           executor_(std::move(executor)),
@@ -63,9 +63,9 @@ namespace vix::websocket
                    wsConfig_.pingInterval.count());
     }
 
-    Server::~Server() = default;
+    LowLevelServer::~LowLevelServer() = default;
 
-    void Server::init_acceptor(unsigned short port)
+    void LowLevelServer::init_acceptor(unsigned short port)
     {
         acceptor_ = std::make_unique<tcp::acceptor>(*ioContext_);
         boost::system::error_code ec;
@@ -91,18 +91,14 @@ namespace vix::websocket
                    "[WebSocket][Server] Listening on port {}", port);
     }
 
-    void Server::run()
+    void LowLevelServer::run()
     {
         start_accept();
         start_io_threads();
     }
 
-    void Server::start_accept()
+    void LowLevelServer::start_accept()
     {
-        // AVANT (qui plante avec ton Boost)
-        // auto socket = std::make_shared<tcp::socket>(net::make_strand(*ioContext_));
-
-        // APRÈS : on crée juste le socket sur l'io_context
         auto socket = std::make_shared<tcp::socket>(*ioContext_);
 
         acceptor_->async_accept(
@@ -111,7 +107,7 @@ namespace vix::websocket
             {
                 if (!ec && !stopRequested_)
                 {
-                    // on transfère le tcp::socket (par valeur) à la Session
+                    // transfer tcp::socket by value to Session
                     handle_client(std::move(*socket));
                 }
 
@@ -122,10 +118,10 @@ namespace vix::websocket
             });
     }
 
-    void Server::handle_client(tcp::socket socket)
+    void LowLevelServer::handle_client(tcp::socket socket)
     {
         auto session = std::make_shared<Session>(
-            std::move(socket), // move dans ws::stream
+            std::move(socket), // move into ws::stream
             wsConfig_,
             router_,
             executor_);
@@ -133,13 +129,13 @@ namespace vix::websocket
         session->run();
     }
 
-    int Server::compute_io_thread_count() const
+    int LowLevelServer::compute_io_thread_count() const
     {
         unsigned int hc = std::thread::hardware_concurrency();
         return static_cast<int>(std::max(1u, hc ? hc / 2 : 1u));
     }
 
-    void Server::start_io_threads()
+    void LowLevelServer::start_io_threads()
     {
         int n = compute_io_thread_count();
         ioThreads_.reserve(static_cast<std::size_t>(n));
@@ -166,7 +162,7 @@ namespace vix::websocket
         }
     }
 
-    void Server::stop_async()
+    void LowLevelServer::stop_async()
     {
         stopRequested_.store(true);
 
@@ -179,7 +175,7 @@ namespace vix::websocket
         ioContext_->stop();
     }
 
-    void Server::join_threads()
+    void LowLevelServer::join_threads()
     {
         for (auto &t : ioThreads_)
         {
