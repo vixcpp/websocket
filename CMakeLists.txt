@@ -164,14 +164,14 @@ if (WEBSOCKET_SOURCES)
   # Beast/WebSocket repose sur Boost.System pour les codes d'erreur
   find_package(Boost 1.78 REQUIRED COMPONENTS system)
 
+  # ➕ NEW: SQLite
+  find_package(SQLite3 REQUIRED)
+
   add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
-  # Canonical target
   add_library(vix::websocket ALIAS vix_websocket)
-  # Short alias (ergonomic)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
-  # Public headers pour #include <vix/websocket/...>
   target_include_directories(vix_websocket
     PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -183,6 +183,7 @@ if (WEBSOCKET_SOURCES)
       ${VIX_CORE_TARGET}
       ${VIX_UTILS_TARGET}
       Boost::system
+      SQLite::SQLite3          
   )
 
   # Optional JSON linkage
