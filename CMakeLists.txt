@@ -240,6 +240,14 @@ else()
           FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
 endif()
 
+# ------------------------ Examples (optional) ------------------------
+option(VIX_WEBSOCKET_BUILD_EXAMPLES
+       "Build WebSocket examples (server + HTML chat demo)" ON)
+
+if (VIX_WEBSOCKET_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
+
 # ----------------------------- Summary -------------------------------
 message(STATUS "------------------------------------------------------")
 message(STATUS "vix::websocket configured (${PROJECT_VERSION})")

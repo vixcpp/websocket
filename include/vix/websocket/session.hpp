@@ -20,6 +20,7 @@
 #include <string_view>
 #include <chrono>
 #include <vector>
+#include <deque>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -71,9 +72,6 @@ namespace vix::websocket
         void arm_idle_timer();
         void cancel_idle_timer();
         void on_idle_timeout(const boost::system::error_code &ec);
-
-        void do_write_text(std::string payload);
-        void do_write_binary(std::vector<unsigned char> payload);
         void on_write_complete(const boost::system::error_code &ec, std::size_t bytes);
 
     private:
@@ -88,7 +86,21 @@ namespace vix::websocket
         net::steady_timer idleTimer_;
         bool closing_ = false;
 
+        // 🔥 Nouvelle file d’attente write + état
+        struct PendingMessage
+        {
+            bool isBinary;
+            std::string data;
+        };
+
+        std::deque<PendingMessage> writeQueue_;
+        bool writeInProgress_ = false;
+
         using Logger = vix::utils::Logger;
+
+        // Nouveau helper interne
+        void do_enqueue_message(bool isBinary, std::string payload);
+        void do_write_next();
     };
 
 } // namespace vix::websocket

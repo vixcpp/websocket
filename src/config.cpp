@@ -16,18 +16,29 @@ namespace vix::websocket
 
         if (core.has("websocket.idle_timeout"))
         {
-            auto v = core.getInt("websocket.idle_timeout", static_cast<int>(cfg.idleTimeout.count()));
-            cfg.idleTimeout = std::chrono::seconds(std::max(5, v)); // min 5s
+            auto v = core.getInt("websocket.idle_timeout",
+                                 static_cast<int>(cfg.idleTimeout.count()));
+
+            if (v <= 0)
+            {
+                cfg.idleTimeout = std::chrono::seconds::zero();
+            }
+            else
+            {
+                cfg.idleTimeout = std::chrono::seconds{v};
+            }
         }
 
         if (core.has("websocket.enable_deflate"))
         {
-            cfg.enablePerMessageDeflate = core.getBool("websocket.enable_deflate", cfg.enablePerMessageDeflate);
+            cfg.enablePerMessageDeflate =
+                core.getBool("websocket.enable_deflate", cfg.enablePerMessageDeflate);
         }
 
         if (core.has("websocket.ping_interval"))
         {
-            auto v = core.getInt("websocket.ping_interval", static_cast<int>(cfg.pingInterval.count()));
+            auto v = core.getInt("websocket.ping_interval",
+                                 static_cast<int>(cfg.pingInterval.count()));
             if (v <= 0)
                 cfg.pingInterval = std::chrono::seconds{0};
             else
