@@ -8,13 +8,18 @@ namespace vix::websocket
                      const Config &cfg,
                      std::shared_ptr<Router> router,
                      std::shared_ptr<vix::executor::IExecutor> executor)
-        : ws_(std::move(socket)) // <-- move dans le stream
-          ,
-          cfg_(cfg), router_(std::move(router)), executor_(std::move(executor)), buffer_(), idleTimer_(ws_.get_executor()) // <-- timer attaché à l'executor du stream
-          ,
-          closing_(false)
+        : ws_(std::move(socket)), cfg_(cfg), router_(std::move(router)), executor_(std::move(executor)), buffer_(), idleTimer_(ws_.get_executor()), closing_(false), writeQueue_(), writeInProgress_(false)
     {
+        // TCP_NODELAY pour réduire la latence
+        {
+            boost::system::error_code ec;
+            ws_.next_layer().set_option(tcp::no_delay(true), ec);
+        }
+
         ws_.read_message_max(cfg_.maxMessageSize);
+
+        // Pré-alloue le buffer une fois pour toutes (si ton type le permet)
+        buffer_.reserve(cfg_.maxMessageSize);
 
         if (cfg_.enablePerMessageDeflate)
         {
@@ -28,7 +33,7 @@ namespace vix::websocket
                 {
                     (void)kind;
                     (void)payload;
-                    // Beast gère déjà ping/pong, on ne fait rien pour l'instant.
+                    // Beast gère déjà ping/pong
                 });
         }
     }
@@ -113,7 +118,8 @@ namespace vix::websocket
 
         if (router_)
         {
-            router_->handle_message(*this, data);
+            // ✅ on transmet la string par valeur au Router
+            router_->handle_message(*this, std::move(data));
         }
 
         if (!closing_)
@@ -163,6 +169,54 @@ namespace vix::websocket
         close(ws::close_reason(ws::close_code::normal));
     }
 
+    void Session::do_enqueue_message(bool isBinary, std::string payload)
+    {
+        if (closing_)
+            return;
+
+        // On est déjà sur le même executor que ws_, donc pas de lock nécessaire.
+        writeQueue_.push_back(PendingMessage{
+            .isBinary = isBinary,
+            .data = std::move(payload),
+        });
+
+        // Si aucune écriture en cours, on démarre le cycle
+        if (!writeInProgress_)
+        {
+            do_write_next();
+        }
+    }
+
+    void Session::do_write_next()
+    {
+        if (closing_)
+        {
+            writeQueue_.clear();
+            writeInProgress_ = false;
+            return;
+        }
+
+        if (writeQueue_.empty())
+        {
+            writeInProgress_ = false;
+            return;
+        }
+
+        writeInProgress_ = true;
+
+        auto self = shared_from_this();
+        PendingMessage msg = std::move(writeQueue_.front());
+        writeQueue_.pop_front();
+
+        ws_.text(!msg.isBinary);
+        ws_.async_write(
+            net::buffer(msg.data),
+            [this, self](const boost::system::error_code &ec, std::size_t bytes)
+            {
+                on_write_complete(ec, bytes);
+            });
+    }
+
     void Session::send_text(std::string_view text)
     {
         if (closing_)
@@ -171,14 +225,13 @@ namespace vix::websocket
         auto self = shared_from_this();
         std::string payload{text};
 
-        executor_->post(
+        // On poste sur l'executor du stream → aucune écriture concurrente
+        net::post(
+            ws_.get_executor(),
             [self, payload = std::move(payload)]() mutable
             {
-                self->do_write_text(std::move(payload));
-            },
-            vix::executor::TaskOptions{
-                .priority = 1,
-                .timeout = std::chrono::milliseconds{0}});
+                self->do_enqueue_message(/*isBinary=*/false, std::move(payload));
+            });
     }
 
     void Session::send_binary(const void *data, std::size_t size)
@@ -187,55 +240,15 @@ namespace vix::websocket
             return;
 
         auto self = shared_from_this();
-        std::vector<unsigned char> payload(
-            static_cast<const unsigned char *>(data),
-            static_cast<const unsigned char *>(data) + size);
+        std::string payload{
+            static_cast<const char *>(data),
+            static_cast<const char *>(data) + size};
 
-        executor_->post(
+        net::post(
+            ws_.get_executor(),
             [self, payload = std::move(payload)]() mutable
             {
-                self->do_write_binary(std::move(payload));
-            },
-            vix::executor::TaskOptions{
-                .priority = 1,
-                .timeout = std::chrono::milliseconds{0}});
-    }
-
-    void Session::do_write_text(std::string payload)
-    {
-        if (closing_)
-            return;
-
-        auto self = shared_from_this();
-
-        ws_.text(true);
-        ws_.async_write(
-            net::buffer(payload),
-            [this, self, payload = std::move(payload)](
-                const boost::system::error_code &ec,
-                std::size_t bytes)
-            {
-                (void)payload;
-                on_write_complete(ec, bytes);
-            });
-    }
-
-    void Session::do_write_binary(std::vector<unsigned char> payload)
-    {
-        if (closing_)
-            return;
-
-        auto self = shared_from_this();
-
-        ws_.binary(true);
-        ws_.async_write(
-            net::buffer(payload.data(), payload.size()),
-            [this, self, payload = std::move(payload)](
-                const boost::system::error_code &ec,
-                std::size_t bytes)
-            {
-                (void)payload;
-                on_write_complete(ec, bytes);
+                self->do_enqueue_message(/*isBinary=*/true, std::move(payload));
             });
     }
 
@@ -249,11 +262,17 @@ namespace vix::websocket
                 logger.log(Logger::Level::WARN,
                            "[WebSocket][Session] Write error: {}", ec.message());
             }
+            // En cas d'erreur, on stoppe le flux
+            closing_ = true;
+            writeQueue_.clear();
             return;
         }
 
         logger.log(Logger::Level::DEBUG,
                    "[WebSocket][Session] Sent {} bytes", bytes);
+
+        // On enchaîne la suite des messages dans la file
+        do_write_next();
     }
 
     void Session::close(ws::close_reason reason)

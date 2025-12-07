@@ -99,6 +99,10 @@ namespace vix::websocket
 
     void Server::start_accept()
     {
+        // AVANT (qui plante avec ton Boost)
+        // auto socket = std::make_shared<tcp::socket>(net::make_strand(*ioContext_));
+
+        // APRÈS : on crée juste le socket sur l'io_context
         auto socket = std::make_shared<tcp::socket>(*ioContext_);
 
         acceptor_->async_accept(

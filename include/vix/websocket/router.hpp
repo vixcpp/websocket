@@ -10,16 +10,20 @@
  * For WebSocket we start with an event-driven router:
  *
  *  - on_open(Session&)
- *  - on_message(Session&, std::string_view)
+ *  - on_message(Session&, std::string)
  *  - on_close(Session&)
  *  - on_error(Session&, boost::system::error_code)
  *
  * Higher-level protocols (channels, rooms, JSON "type" field, etc.) can be
  * layered on top later without touching the low-level Session implementation.
+ *
+ * IMPORTANT:
+ *  We pass the payload as std::string (by value) to avoid lifetime issues
+ *  with std::string_view when messages are dispatched asynchronously.
  */
 
 #include <functional>
-#include <string_view>
+#include <string>
 
 #include <boost/system/error_code.hpp>
 
@@ -33,7 +37,7 @@ namespace vix::websocket
         using OpenHandler = std::function<void(Session &)>;
         using CloseHandler = std::function<void(Session &)>;
         using ErrorHandler = std::function<void(Session &, const boost::system::error_code &)>;
-        using MessageHandler = std::function<void(Session &, std::string_view)>;
+        using MessageHandler = std::function<void(Session &, std::string)>;
 
         Router() = default;
 
@@ -46,7 +50,14 @@ namespace vix::websocket
         void handle_open(Session &session) const;
         void handle_close(Session &session) const;
         void handle_error(Session &session, const boost::system::error_code &ec) const;
-        void handle_message(Session &session, std::string_view payload) const;
+
+        /**
+         * @brief Dispatch an incoming message.
+         *
+         * The payload is passed by value to ensure it remains valid even if
+         * the handler is executed asynchronously.
+         */
+        void handle_message(Session &session, std::string payload) const;
 
     private:
         OpenHandler openHandler_;
