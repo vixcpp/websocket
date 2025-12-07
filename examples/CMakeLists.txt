@@ -1,10 +1,10 @@
-add_executable(vix_ws_demo
+add_executable(vix_ws_server
     src/main.cpp
 )
 
 target_link_libraries(vix_ws_server
     PRIVATE
-        vix::websocket   
+        vix::websocket
 )
 
 add_executable(vix_ws_client
@@ -13,5 +13,5 @@ add_executable(vix_ws_client
 
 target_link_libraries(vix_ws_client
     PRIVATE
-        vix::websocket  
+        vix::websocket
 )

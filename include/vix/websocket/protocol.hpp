@@ -3,10 +3,30 @@
 
 /**
  * @file protocol.hpp
- * @brief JSON protocol helpers for WebSocket { type, payload } messages.
+ * @brief JSON protocol helpers for WebSocket messages.
  *
- * Public API uses vix::json::kvs for payload. Internally, a JSON library
- * is used to parse and format text frames.
+ * Protocole standardisé pour préparer la persistance (SQLite + WAL).
+ *
+ * Format JSON sur le fil :
+ *
+ * {
+ *   "id":     "msg-123",                    // optional, string
+ *   "kind":   "event" | "system" | "error", // optional, default "event"
+ *   "ts":     "2025-12-07T10:15:30Z",       // optional, ISO-8601 UTC
+ *   "room":   "africa",                     // optional
+ *   "type":   "chat.message",               // required (logique métier)
+ *   "payload": { ... }                      // arbitrary key/values (vix::json::kvs)
+ * }
+ *
+ * Public API :
+ *   - JsonMessage::parse(text)
+ *   - JsonMessage::serialize(...)
+ *   - Helpers get_string(), get<T>() sur payload
+ *
+ * NOTE:
+ *   - Les champs id / kind / ts / room peuvent être ignorés par les applis simples.
+ *   - Pour WAL / SQLite:
+ *       columns: id, room, kind, type, ts, payload_json
  */
 
 #include <string>
@@ -149,15 +169,29 @@ namespace vix::websocket
 
     } // namespace detail
 
-    /// High-level protocol { type, payload } on top of WebSocket text frames.
+    /// High-level protocol envelope for WebSocket text frames.
+    ///
+    /// This struct is designed to map almost 1:1 to a DB row:
+    ///
+    ///   id      → TEXT / INTEGER PRIMARY KEY
+    ///   kind    → TEXT (event / system / error / ...)
+    ///   ts      → TEXT (ISO-8601, UTC)
+    ///   room    → TEXT (nullable)
+    ///   type    → TEXT (business type, e.g. chat.message)
+    ///   payload → JSON text (from kvs)
+    ///
     struct JsonMessage
     {
-        std::string type;
-        vix::json::kvs payload;
+        std::string id;         ///< optional stable identifier for WAL / DB
+        std::string kind;       ///< "event", "system", "error", ...
+        std::string ts;         ///< ISO-8601 UTC timestamp (optional)
+        std::string room;       ///< logical channel / room (optional)
+        std::string type;       ///< business message type (required)
+        vix::json::kvs payload; ///< business payload as flat kvs
 
-        // ---- NEW: client-friendly helpers ------------------------------------
+        // ---- Client-friendly helpers on payload ------------------------------
 
-        /// Get a string from payload["key"], or empty string if missing
+        /// Get a string from payload["key"], or empty string if missing.
         std::string get_string(const std::string &key) const
         {
             const auto &a = payload.flat;
@@ -180,7 +214,7 @@ namespace vix::websocket
             return {};
         }
 
-        /// Generic typed getter (optional)
+        /// Generic typed getter (optional) from payload.
         template <typename T>
         std::optional<T> get(const std::string &key) const
         {
@@ -204,7 +238,7 @@ namespace vix::websocket
             return std::nullopt;
         }
 
-        // ---- Parse JSON -------------------------------------------------------
+        // ---- Parse JSON envelope ---------------------------------------------
 
         static std::optional<JsonMessage> parse(std::string_view s)
         {
@@ -215,10 +249,20 @@ namespace vix::websocket
                     return std::nullopt;
 
                 JsonMessage msg;
-                msg.type = j.value("type", "");
+
+                // Envelope fields (all optional sauf type)
+                msg.id = j.value("id", std::string{});
+                msg.kind = j.value("kind", std::string{}); // souvent "event" / "system"
+                msg.ts = j.value("ts", std::string{});
+                msg.room = j.value("room", std::string{});
+                msg.type = j.value("type", std::string{});
 
                 if (j.contains("payload"))
                     msg.payload = detail::nlohmann_payload_to_kvs(j["payload"]);
+
+                // type vide = on ignore (message invalide)
+                if (msg.type.empty())
+                    return std::nullopt;
 
                 return msg;
             }
@@ -228,18 +272,53 @@ namespace vix::websocket
             }
         }
 
-        // ---- Serialize { type, payload } -------------------------------------
+        // ---- Serialize envelope ----------------------------------------------
 
-        static std::string serialize(const std::string &type,
-                                     const vix::json::kvs &payloadKvs)
+        /// Serialize a full JsonMessage (envelope + payload) to a JSON string.
+        static std::string serialize(const JsonMessage &m)
         {
-            nlohmann::json payload = detail::ws_kvs_to_nlohmann(payloadKvs);
+            nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
 
-            nlohmann::json j{
-                {"type", type},
-                {"payload", payload},
-            };
+            nlohmann::json j = nlohmann::json::object();
+            if (!m.id.empty())
+                j["id"] = m.id;
+            if (!m.kind.empty())
+                j["kind"] = m.kind;
+            if (!m.ts.empty())
+                j["ts"] = m.ts;
+            if (!m.room.empty())
+                j["room"] = m.room;
+
+            j["type"] = m.type;
+            j["payload"] = payloadJson;
+
             return j.dump();
+        }
+
+        /// Convenience: serialize type + payload seulement (métadonnées optionnelles).
+        ///
+        /// Exemple simple :
+        ///   JsonMessage::serialize("chat.message", payloadKvs);
+        ///
+        /// Exemple avancé avec room:
+        ///   JsonMessage::serialize("chat.message", payloadKvs, "africa");
+        ///
+        static std::string serialize(const std::string &type,
+                                     const vix::json::kvs &payloadKvs,
+                                     const std::string &room = {},
+                                     const std::string &id = {},
+                                     const std::string &kind = {},
+                                     const std::string &ts = {})
+        {
+            JsonMessage m;
+            m.type = type;
+            m.payload = payloadKvs;
+            m.room = room;
+            m.id = id;
+            m.kind = kind;
+            m.ts = ts;
+
+            return serialize(m);
         }
     };
 

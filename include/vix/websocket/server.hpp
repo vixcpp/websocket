@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <boost/system/error_code.hpp>
 
@@ -44,6 +45,8 @@ namespace vix::websocket
         using MessageHandler = std::function<void(Session &, const std::string &)>;
         using TypedMessageHandler = std::function<void(Session &, const std::string &, const vix::json::kvs &)>;
 
+        using RoomId = std::string;
+
         Server(vix::config::Config &cfg,
                std::shared_ptr<vix::executor::IExecutor> executor)
             : cfg_(cfg),
@@ -63,7 +66,10 @@ namespace vix::websocket
             router_->on_close(
                 [this](Session &s)
                 {
-                    unregister_session(s.shared_from_this());
+                    auto sp = s.shared_from_this();
+                    unregister_session(sp);
+                    // Also remove this session from all rooms
+                    remove_session_from_all_rooms(sp);
                     if (userOnClose_)
                         userOnClose_(s);
                 });
@@ -149,7 +155,7 @@ namespace vix::websocket
             return cfg_.getInt("websocket.port", 9090);
         }
 
-        // ───────────── Broadcast helpers ─────────────
+        // ───────────── Broadcast helpers (global) ─────────────
 
         /// Broadcasts a text message to all active sessions.
         void broadcast_text(const std::string &text)
@@ -181,6 +187,111 @@ namespace vix::websocket
         {
             vix::json::kvs kv{payloadTokens};
             broadcast_text(JsonMessage::serialize(type, kv));
+        }
+
+        // ───────────── Room management API ─────────────
+        //
+        // Rooms are simple named channels. A session can join multiple rooms.
+        // All operations are thread-safe.
+
+        /// Add a session to a room (idempotent).
+        void join_room(Session &session, const RoomId &room)
+        {
+            auto sp = session.shared_from_this();
+            std::lock_guard<std::mutex> lock(sessionsMutex_);
+
+            cleanup_sessions_locked();
+            cleanup_rooms_locked();
+
+            auto &vec = rooms_[room];
+
+            // Avoid duplicates
+            auto it = std::find_if(
+                vec.begin(), vec.end(),
+                [&sp](const std::weak_ptr<Session> &w)
+                {
+                    auto wp = w.lock();
+                    return wp && wp.get() == sp.get();
+                });
+
+            if (it == vec.end())
+            {
+                vec.emplace_back(sp);
+            }
+        }
+
+        /// Remove a session from a specific room.
+        void leave_room(Session &session, const RoomId &room)
+        {
+            auto sp = session.shared_from_this();
+            std::lock_guard<std::mutex> lock(sessionsMutex_);
+
+            auto itRoom = rooms_.find(room);
+            if (itRoom == rooms_.end())
+                return;
+
+            auto &vec = itRoom->second;
+            vec.erase(
+                std::remove_if(
+                    vec.begin(), vec.end(),
+                    [&sp](const std::weak_ptr<Session> &w)
+                    {
+                        auto wp = w.lock();
+                        return !wp || wp.get() == sp.get();
+                    }),
+                vec.end());
+
+            if (vec.empty())
+            {
+                rooms_.erase(itRoom);
+            }
+        }
+
+        /// Remove a session from all rooms where it is present.
+        void leave_all_rooms(Session &session)
+        {
+            auto sp = session.shared_from_this();
+            std::lock_guard<std::mutex> lock(sessionsMutex_);
+            remove_session_from_all_rooms_locked(sp);
+        }
+
+        /// Broadcast plain text to a specific room.
+        void broadcast_room_text(const RoomId &room, const std::string &text)
+        {
+            std::lock_guard<std::mutex> lock(sessionsMutex_);
+
+            cleanup_sessions_locked();
+            cleanup_rooms_locked();
+
+            auto it = rooms_.find(room);
+            if (it == rooms_.end())
+                return;
+
+            auto &vec = it->second;
+            for (auto &weak : vec)
+            {
+                if (auto s = weak.lock())
+                {
+                    s->send_text(text);
+                }
+            }
+        }
+
+        /// Broadcast {type, payload} JSON to a specific room.
+        void broadcast_room_json(const RoomId &room,
+                                 const std::string &type,
+                                 const vix::json::kvs &payload)
+        {
+            broadcast_room_text(room, JsonMessage::serialize(type, payload));
+        }
+
+        /// Broadcast {type, payload} JSON to a specific room with token list.
+        void broadcast_room_json(const RoomId &room,
+                                 const std::string &type,
+                                 std::initializer_list<vix::json::token> payloadTokens)
+        {
+            vix::json::kvs kv{payloadTokens};
+            broadcast_room_text(room, JsonMessage::serialize(type, kv));
         }
 
     private:
@@ -219,6 +330,63 @@ namespace vix::websocket
                 sessions_.end());
         }
 
+        void cleanup_rooms_locked()
+        {
+            for (auto it = rooms_.begin(); it != rooms_.end();)
+            {
+                auto &vec = it->second;
+                vec.erase(
+                    std::remove_if(
+                        vec.begin(), vec.end(),
+                        [](const std::weak_ptr<Session> &w)
+                        {
+                            return w.expired();
+                        }),
+                    vec.end());
+
+                if (vec.empty())
+                {
+                    it = rooms_.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+
+        void remove_session_from_all_rooms(std::shared_ptr<Session> s)
+        {
+            std::lock_guard<std::mutex> lock(sessionsMutex_);
+            remove_session_from_all_rooms_locked(s);
+        }
+
+        void remove_session_from_all_rooms_locked(std::shared_ptr<Session> s)
+        {
+            for (auto it = rooms_.begin(); it != rooms_.end();)
+            {
+                auto &vec = it->second;
+                vec.erase(
+                    std::remove_if(
+                        vec.begin(), vec.end(),
+                        [&s](const std::weak_ptr<Session> &w)
+                        {
+                            auto sp = w.lock();
+                            return !sp || sp.get() == s.get();
+                        }),
+                    vec.end());
+
+                if (vec.empty())
+                {
+                    it = rooms_.erase(it);
+                }
+                else
+                {
+                    ++it;
+                }
+            }
+        }
+
     private:
         vix::config::Config &cfg_;
         std::shared_ptr<vix::executor::IExecutor> executor_;
@@ -228,6 +396,9 @@ namespace vix::websocket
         // Active sessions (non-owning)
         std::mutex sessionsMutex_;
         std::vector<std::weak_ptr<Session>> sessions_;
+
+        // Rooms: room id -> list of sessions (non-owning)
+        std::unordered_map<RoomId, std::vector<std::weak_ptr<Session>>> rooms_;
 
         // User callbacks
         OpenHandler userOnOpen_;

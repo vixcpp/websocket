@@ -46,6 +46,8 @@
 #include <atomic>
 #include <iostream>
 #include <chrono>
+#include <deque>
+#include <mutex>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -141,6 +143,45 @@ namespace vix::websocket
                       { self->do_resolve(); });
         }
 
+        void do_write()
+        {
+            if (!ws_ || closing_)
+                return;
+
+            std::string current;
+            {
+                std::lock_guard<std::mutex> lock(writeMutex_);
+                if (writeQueue_.empty())
+                {
+                    writeInProgress_ = false;
+                    return;
+                }
+                current = writeQueue_.front();
+            }
+
+            auto self = shared_from_this();
+            ws_->async_write(
+                net::buffer(current),
+                [self](const boost::system::error_code &ec, std::size_t)
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(self->writeMutex_);
+                        if (!self->writeQueue_.empty())
+                            self->writeQueue_.pop_front();
+                    }
+
+                    if (ec && ec != net::error::operation_aborted)
+                    {
+                        self->emit_error(ec, "write");
+                        self->maybe_schedule_reconnect(ec);
+                        return;
+                    }
+
+                    // Enchaîner le message suivant s’il y en a un
+                    self->do_write();
+                });
+        }
+
         /// Send a text message (thread-safe via executor).
         void send_text(const std::string &text)
         {
@@ -153,16 +194,19 @@ namespace vix::websocket
                       {
                           if (!self->ws_ || self->closing_)
                               return;
-                          self->ws_->async_write(
-                              net::buffer(text),
-                              [self](const boost::system::error_code &ec, std::size_t)
-                              {
-                                  if (ec && ec != net::error::operation_aborted)
-                                  {
-                                      self->emit_error(ec, "write");
-                                      self->maybe_schedule_reconnect(ec);
-                                  }
-                              });
+
+                          {
+                              std::lock_guard<std::mutex> lock(self->writeMutex_);
+                              self->writeQueue_.push_back(text);
+
+                              // Si un write est déjà en cours, on ne lance pas un 2e
+                              if (self->writeInProgress_)
+                                  return;
+
+                              self->writeInProgress_ = true;
+                          }
+
+                          self->do_write();
                       });
         }
 
@@ -507,6 +551,10 @@ namespace vix::websocket
         MessageHandler onMessage_;
         CloseHandler onClose_;
         ErrorHandler onError_;
+
+        std::mutex writeMutex_;
+        std::deque<std::string> writeQueue_;
+        bool writeInProgress_{false};
     };
 
 } // namespace vix::websocket

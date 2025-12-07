@@ -6,39 +6,81 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
 ## [0.1.2] - 2025-12-07
 
+feat(websocket): add rooms + persistent message store (SQLite + WAL)
+
+- Added high-level WebSocket rooms API:
+  • join_room(session, room)
+  • leave_room(session, room)
+  • broadcast_room_json(room, type, payload)
+
+- Updated websocket::Server to manage room membership and routing.
+
+- Added extensible persistence layer:
+  • MessageStore (interface) - append(message) - list_by_room(room, limit, before_id) - replay_from(id)
+
+  • SqliteMessageStore (SQLite3 + WAL enabled) - Creates table ws_messages(id, kind, room, type, ts, payload_json) - Safe concurrent writes, WAL mode for high performance - Full JSON persistence for payload
+
+- Added new files:
+  • include/vix/websocket/MessageStore.hpp
+  • include/vix/websocket/SqliteMessageStore.hpp
+  • src/SqliteMessageStore.cpp
+  • examples/config/config.json (WebSocket demo)
+
+- Updated existing components:
+  • client.hpp → added JSON message support, room commands, auto-reconnect improvements
+  • protocol.hpp → extended JsonMessage with kind, room, timestamp, id
+  • server.hpp → room map, typed messages, storage hooks
+  • CMakeLists.txt → install SqliteMessageStore and enable SQLite linkage
+  • examples/CMakeLists.txt → added chat example with rooms + persistence
+
+This commit completes:
+✓ WebSocket rooms
+✓ Strict JSON protocol with envelopes
+✓ Persistent chat history via SQLite + WAL
+✓ Ready for replay API and message batching
+
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
+
+-
 
 ## [0.1.1] - 2025-12-05
 
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
+
+-
 
 ## [0.1.0] - 2025-12-05
 
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
 
+-
 
 ## [v0.1.0] - 2025-12-05
 
