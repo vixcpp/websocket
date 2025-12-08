@@ -315,6 +315,45 @@ namespace vix::websocket
             }
         }
 
+        /// ------------------------------------------------------------------
+        /// Sugar API — typed messages using `send("type", {...})`
+        /// ------------------------------------------------------------------
+
+        /**
+         * @brief Send a typed JSON message `{ "type", "payload" }` using kvs.
+         *
+         * Example:
+         * @code{.cpp}
+         * client->send("chat.message", {
+         *     {"user", "alice"},
+         *     {"text", "hello"},
+         * });
+         * @endcode
+         */
+        void send(const std::string &type,
+                  const vix::json::kvs &payload)
+        {
+            send_json_message(type, payload);
+        }
+
+        /**
+         * @brief Send a typed JSON message using an initializer-list of tokens.
+         *
+         * Example:
+         * @code{.cpp}
+         * client->send("chat.message", {
+         *     "user", "alice",
+         *     "text", "hello",
+         * });
+         * @endcode
+         */
+        void send(const std::string &type,
+                  std::initializer_list<vix::json::token> payloadTokens)
+        {
+            vix::json::kvs payload{payloadTokens};
+            send_json_message(type, payload);
+        }
+
     private:
         Client(std::string host, std::string port, std::string target)
             : host_(std::move(host)), port_(std::move(port)), target_(std::move(target))
