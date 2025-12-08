@@ -80,38 +80,39 @@
  */
 #include <iostream>
 #include <string>
+#include <thread>
+#include <atomic>
+#include <cstdint>
 
 #include <nlohmann/json.hpp>
+
+#include <vix.hpp> // HTTP runtime (App, vhttp::ResponseWrapper, etc.)
 
 #include <vix/websocket.hpp>
 #include <vix/websocket/Metrics.hpp>
 #include <vix/websocket/SqliteMessageStore.hpp>
 #include <vix/websocket/protocol.hpp>
+#include <vix/websocket/LongPolling.hpp>
+#include <vix/websocket/LongPollingBridge.hpp>
 
-#include <atomic>
-#include <cstdint>
-#include <sstream>
-#include <thread>
+#include <boost/beast/http.hpp>
 
 int main()
 {
     using vix::websocket::App;
     using vix::websocket::JsonMessage;
+    using vix::websocket::LongPollingBridge;
+    using vix::websocket::LongPollingManager;
     using vix::websocket::Session;
     using vix::websocket::WebSocketMetrics;
     using vix::websocket::detail::ws_kvs_to_nlohmann;
 
-    // ─────────────────────────────────────────────
-    // 1) App WebSocket haut niveau (Config + ThreadPool inside)
-    // ─────────────────────────────────────────────
-    App app{"config/config.json"};
+    namespace http = boost::beast::http;
+    using njson = nlohmann::json;
 
-    // Accès au serveur sous-jacent
-    auto &ws = app.server();
+    App wsApp{"config/config.json"};
+    auto &ws = wsApp.server();
 
-    // ─────────────────────────────────────────────
-    // 2) Metrics + exporter HTTP /metrics
-    // ─────────────────────────────────────────────
     WebSocketMetrics metrics;
 
     std::thread metricsThread([&metrics]()
@@ -121,15 +122,33 @@ int main()
                                     9100); });
     metricsThread.detach();
 
-    // ─────────────────────────────────────────────
-    // 3) Store persistant SQLite (WAL activé dans le ctor)
-    // ─────────────────────────────────────────────
     vix::websocket::SqliteMessageStore store{"chat_messages.db"};
     constexpr std::size_t HISTORY_LIMIT = 50;
 
-    // ─────────────────────────────────────────────
-    // 4) on_open : welcome privé + métriques globales
-    // ─────────────────────────────────────────────
+    auto resolver = [](const JsonMessage &msg)
+    {
+        if (!msg.room.empty())
+            return std::string{"room:"} + msg.room;
+        return std::string{"broadcast"};
+    };
+
+    auto httpToWs = [&ws](const JsonMessage &msg)
+    {
+        if (!msg.room.empty())
+            ws.broadcast_room_json(msg.room, msg.type, msg.payload);
+        else
+            ws.broadcast_json(msg.type, msg.payload);
+    };
+
+    auto lpBridge = std::make_shared<LongPollingBridge>(
+        &metrics,
+        std::chrono::seconds{60}, // TTL
+        256,                      // max buffer / session
+        resolver,
+        httpToWs);
+
+    ws.attach_long_polling_bridge(lpBridge);
+
     ws.on_open(
         [&store, &metrics](Session &session)
         {
@@ -151,22 +170,11 @@ int main()
             msg.room = "";
             msg.payload = payload;
 
-            // log dans SQLite
             store.append(msg);
-
-            // envoyer juste à ce client
             session.send_text(JsonMessage::serialize(msg));
         });
 
-    // (optionnel, si tu as un hook on_close côté Server)
-    // ws.on_close([&metrics](Session&) {
-    //     metrics.connections_active.fetch_sub(1, std::memory_order_relaxed);
-    // });
-
-    // ─────────────────────────────────────────────
-    // 5) Logique applicative via App::ws("/chat", handler)
-    // ─────────────────────────────────────────────
-    app.ws(
+    wsApp.ws(
         "/chat",
         [&ws, &store, &metrics](Session &session,
                                 const std::string &type,
@@ -176,7 +184,7 @@ int main()
 
             metrics.messages_in_total.fetch_add(1, std::memory_order_relaxed);
 
-            nlohmann::json j = ws_kvs_to_nlohmann(payload);
+            njson j = ws_kvs_to_nlohmann(payload);
 
             // 1) JOIN
             if (type == "chat.join")
@@ -212,7 +220,6 @@ int main()
                     sysMsg.payload = sysPayload;
 
                     store.append(sysMsg);
-
                     ws.broadcast_room_json(room, sysMsg.type, sysMsg.payload);
                     metrics.messages_out_total.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -243,7 +250,6 @@ int main()
                     msg.payload = sysPayload;
 
                     store.append(msg);
-
                     ws.broadcast_room_json(room, msg.type, msg.payload);
                     metrics.messages_out_total.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -275,7 +281,6 @@ int main()
                     msg.payload = msgPayload;
 
                     store.append(msg);
-
                     ws.broadcast_room_json(room, msg.type, msg.payload);
                     metrics.messages_out_total.fetch_add(1, std::memory_order_relaxed);
                     return;
@@ -297,7 +302,180 @@ int main()
         });
 
     // ─────────────────────────────────────────────
-    // 6) Démarrage bloquant
+    // 7) HTTP App : /ws/poll + /ws/send (LongPolling)
     // ─────────────────────────────────────────────
-    app.run_blocking();
+    vix::App httpApp;
+
+    // Helper local pour lire ?name=value dans la target Beast
+    auto get_query_param = [](const http::request<http::string_body> &req,
+                              std::string_view key) -> std::optional<std::string>
+    {
+        std::string target = std::string(req.target());
+        auto pos = target.find('?');
+        if (pos == std::string::npos)
+            return std::nullopt;
+
+        std::string query = target.substr(pos + 1);
+        std::size_t start = 0;
+
+        while (start < query.size())
+        {
+            auto amp = query.find('&', start);
+            auto part = query.substr(
+                start,
+                (amp == std::string::npos) ? std::string::npos : (amp - start));
+
+            auto eq = part.find('=');
+            if (eq != std::string::npos)
+            {
+                std::string k = part.substr(0, eq);
+                std::string v = part.substr(eq + 1);
+                if (k == key)
+                {
+                    return v;
+                }
+            }
+
+            if (amp == std::string::npos)
+                break;
+            start = amp + 1;
+        }
+        return std::nullopt;
+    };
+
+    // GET /ws/poll → retourne un array JSON de JsonMessage
+    httpApp.get(
+        "/ws/poll",
+        [lpBridge, &get_query_param](const http::request<http::string_body> &req,
+                                     vix::vhttp::ResponseWrapper &res)
+        {
+            auto sessionIdOpt = get_query_param(req, "session_id");
+            if (!sessionIdOpt || sessionIdOpt->empty())
+            {
+                res.status(http::status::bad_request).json({
+                    "error",
+                    "missing_session_id",
+                });
+                return;
+            }
+
+            std::string sessionId = *sessionIdOpt;
+
+            std::size_t maxMessages = 50;
+            if (auto maxStrOpt = get_query_param(req, "max"))
+            {
+                try
+                {
+                    maxMessages = static_cast<std::size_t>(std::stoul(*maxStrOpt));
+                }
+                catch (...)
+                {
+                    // on garde 50
+                }
+            }
+
+            auto messages = lpBridge->poll(sessionId, maxMessages, true);
+            auto body = vix::websocket::json_messages_to_nlohmann_array(messages);
+
+            res.status(http::status::ok).json(body);
+        });
+
+    // POST /ws/send → HTTP -> LP (et via httpToWs → WS + rooms)
+    httpApp.post(
+        "/ws/send",
+        [lpBridge](const http::request<http::string_body> &req,
+                   vix::vhttp::ResponseWrapper &res)
+        {
+            njson j;
+            try
+            {
+                j = njson::parse(req.body());
+            }
+            catch (...)
+            {
+                res.status(http::status::bad_request).json({
+                    "error",
+                    "invalid_json_body",
+                });
+                return;
+            }
+
+            std::string sessionId = j.value("session_id", std::string{});
+            std::string type = j.value("type", std::string{});
+            std::string room = j.value("room", std::string{});
+
+            if (type.empty())
+            {
+                res.status(http::status::bad_request).json({
+                    "error",
+                    "missing_type",
+                });
+                return;
+            }
+
+            // Si pas de session_id fourni :
+            if (sessionId.empty())
+            {
+                if (!room.empty())
+                {
+                    sessionId = std::string{"room:"} + room;
+                }
+                else
+                {
+                    sessionId = "broadcast";
+                }
+            }
+
+            JsonMessage msg;
+            msg.type = type;
+            msg.room = room;
+
+            if (j.contains("payload"))
+            {
+                msg.payload = vix::websocket::detail::nlohmann_payload_to_kvs(j["payload"]);
+            }
+
+            lpBridge->send_from_http(sessionId, msg);
+
+            res.status(http::status::accepted).json({
+                "status",
+                "queued",
+                "session_id",
+                sessionId,
+            });
+        });
+
+    // (Optionnel) /health simple
+    httpApp.get(
+        "/health",
+        [](auto &, vix::vhttp::ResponseWrapper &res)
+        {
+            res.status(http::status::ok).json({
+                "status",
+                "ok",
+            });
+        });
+
+    // ─────────────────────────────────────────────
+    // 8) Lancement WS + HTTP
+    // ─────────────────────────────────────────────
+
+    // Thread dédié WebSocket
+    std::thread wsThread{[&wsApp]()
+                         { wsApp.run_blocking(); }};
+
+    // Hook shutdown : quand HTTP reçoit SIGINT/SIGTERM, il sort de run()
+    // et on coupe proprement le WS.
+    httpApp.set_shutdown_callback([&wsApp, &wsThread]()
+                                  {
+        wsApp.stop();
+        if (wsThread.joinable())
+        {
+            wsThread.join();
+        } });
+
+    // HTTP bloquant sur 8080
+    httpApp.run(8080);
+
+    return 0;
 }

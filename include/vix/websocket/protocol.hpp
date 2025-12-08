@@ -320,7 +320,103 @@ namespace vix::websocket
 
             return serialize(m);
         }
+
+        /// Convert this JsonMessage into a nlohmann::json object.
+        ///
+        /// This mirrors the structure produced by serialize(), but returns
+        /// the JSON object instead of a string.
+        nlohmann::json to_nlohmann() const
+        {
+            // payload -> nlohmann::json
+            nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(payload);
+
+            nlohmann::json j = nlohmann::json::object();
+
+            if (!id.empty())
+                j["id"] = id;
+            if (!kind.empty())
+                j["kind"] = kind;
+            if (!ts.empty())
+                j["ts"] = ts;
+            if (!room.empty())
+                j["room"] = room;
+
+            j["type"] = type;
+            j["payload"] = payloadJson;
+
+            return j;
+        }
     };
+
+    // -----------------------------------------------------------------------------
+    // JSON helpers for HTTP / long-polling
+    // -----------------------------------------------------------------------------
+
+    /// Convert a single JsonMessage to nlohmann::json.
+    ///
+    /// Shape:
+    /// {
+    ///   "id": "...",
+    ///   "kind": "...",
+    ///   "ts": "...",
+    ///   "room": "...",
+    ///   "type": "chat.message",
+    ///   "payload": { ... }
+    /// }
+    inline nlohmann::json json_message_to_nlohmann(const JsonMessage &m)
+    {
+        nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
+
+        nlohmann::json j = nlohmann::json::object();
+        if (!m.id.empty())
+            j["id"] = m.id;
+        if (!m.kind.empty())
+            j["kind"] = m.kind;
+        if (!m.ts.empty())
+            j["ts"] = m.ts;
+        if (!m.room.empty())
+            j["room"] = m.room;
+
+        j["type"] = m.type;
+        j["payload"] = std::move(payloadJson);
+
+        return j;
+    }
+
+    /// Convert a vector<JsonMessage> to a JSON array.
+    ///
+    /// Typical use in /ws/poll:
+    ///   auto messages = bridge.poll(sessionId, max);
+    ///   auto arr = json_messages_to_nlohmann_array(messages);
+    ///   res.json(arr);
+    inline nlohmann::json json_messages_to_nlohmann_array(
+        const std::vector<JsonMessage> &messages)
+    {
+        nlohmann::json arr = nlohmann::json::array();
+
+        // Pré-allocation via le ref interne sur array_t (facultatif, mais propre)
+        if (!messages.empty())
+        {
+            auto &vec = arr.get_ref<nlohmann::json::array_t &>();
+            vec.reserve(messages.size());
+        }
+
+        for (const auto &msg : messages)
+        {
+            arr.push_back(msg.to_nlohmann());
+        }
+
+        return arr;
+    }
+
+    /// Serialize a vector<JsonMessage> as a compact JSON string.
+    ///
+    /// Equivalent to json_messages_to_nlohmann_array(...).dump().
+    inline std::string serialize_messages_array(
+        const std::vector<JsonMessage> &messages)
+    {
+        return json_messages_to_nlohmann_array(messages).dump();
+    }
 
 } // namespace vix::websocket
 

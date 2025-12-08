@@ -58,22 +58,29 @@
  * persistence, metrics, room routing, history replay, and auto-reconnect.
  */
 
+#include <vix/config/Config.hpp>
+#include <vix/experimental/ThreadPoolExecutor.hpp>
 #include <vix/websocket.hpp>
 
 int main()
 {
-    using vix::websocket::App;
-    using vix::websocket::Session;
+    using vix::websocket::Server;
 
-    // App WebSocket haut niveau : charge config + threadpool en interne
-    App app{"config/config.json"};
+    // Load configuration from config/config.json
+    vix::config::Config cfg{"config/config.json"};
 
-    // Accès au serveur sous-jacent pour les callbacks bas niveau (on_open, etc.)
-    auto &ws = app.server();
+    // Thread pool for async work
+    auto exec = vix::experimental::make_threadpool_executor(
+        4, // min threads
+        8, // max threads
+        0  // default priority
+    );
+
+    Server ws(cfg, std::move(exec));
 
     // On new connection: broadcast a welcome system message
     ws.on_open(
-        [&ws](Session &session)
+        [&ws](auto &session)
         {
             (void)session;
 
@@ -87,22 +94,19 @@ int main()
                 });
         });
 
-    // Déclare un endpoint logique "/chat" avec handler typé
-    app.ws(
-        "/chat",
-        [&ws](Session &session,
+    // On typed message: echo chat messages to everyone
+    ws.on_typed_message(
+        [&ws](auto &session,
               const std::string &type,
               const vix::json::kvs &payload)
         {
             (void)session;
 
-            // On typed message: echo chat messages to everyone
             if (type == "chat.message")
             {
                 ws.broadcast_json("chat.message", payload);
             }
         });
 
-    // Démarre le serveur WebSocket (bloquant)
-    app.run_blocking();
+    ws.listen_blocking();
 }

@@ -72,105 +72,126 @@
  * This file demonstrates best practices when building interactive,
  * reconnect-friendly, real-time WebSocket clients with Vix.cpp.
  */
-
 #include <iostream>
 #include <string>
+#include <memory>
+#include <chrono>
+
+#include <boost/system/error_code.hpp>
 
 #include <vix/websocket.hpp> // expose Client + JsonMessage
 
-int main()
+namespace ws = vix::websocket;
+
+using ClientPtr = std::shared_ptr<ws::Client>;
+using Clock = std::chrono::steady_clock;
+
+// Petit helper local : starts_with
+bool starts_with(const std::string &s, const std::string &prefix)
 {
-    using vix::websocket::Client;
-    using vix::websocket::JsonMessage;
+    return s.size() >= prefix.size() &&
+           s.compare(0, prefix.size(), prefix) == 0;
+}
 
-    auto client = Client::create("localhost", "9090", "/");
+/**
+ * @brief Configure le client WebSocket (handlers, auto-reconnect, heartbeat).
+ */
+ClientPtr create_chat_client(std::string host,
+                             std::string port,
+                             std::string path,
+                             std::string user,
+                             std::string room)
+{
+    using ws::JsonMessage;
 
-    // ───────────── Prompt user + room ─────────────
-    std::cout << "Pseudo: ";
-    std::string user;
-    std::getline(std::cin, user);
-    if (user.empty())
-        user = "anonymous";
-
-    std::cout << "Room (ex: general): ";
-    std::string room;
-    std::getline(std::cin, room);
-    if (room.empty())
-        room = "general";
-
-    auto starts_with = [](const std::string &s, const std::string &prefix) -> bool
-    {
-        return s.size() >= prefix.size() &&
-               s.compare(0, prefix.size(), prefix) == 0;
-    };
+    auto client = ws::Client::create(std::move(host),
+                                     std::move(port),
+                                     std::move(path));
 
     // ───────────── Handlers ─────────────
 
-    client->on_open([&client, user, room]
+    // Quand la connexion WS s'ouvre → join de la room courante
+    client->on_open([client, user, room]
                     {
-        std::cout << "[client] Connected ✅" << std::endl;
+                        std::cout << "[client] Connected ✅" << std::endl;
 
-        // Dès que connecté → join de la room courante
-        client->send(
-            "chat.join",
-            {
-                "room", room,
-                "user", user,
-            }); });
+                        client->send(
+                            "chat.join",
+                            {
+                                "room", room,
+                                "user", user,
+                            }); });
 
+    // Réception des messages
     client->on_message([](const std::string &msg)
                        {
-        auto jm = JsonMessage::parse(msg);
+                           auto jm = JsonMessage::parse(msg);
 
-        if (!jm)
-        {
-            std::cout << msg << std::endl;
-            return;
-        }
+                           if (!jm)
+                           {
+                               // Pas du JSON du protocole → afficher brut
+                               std::cout << msg << std::endl;
+                               return;
+                           }
 
-        std::string type = jm->type;
+                           const std::string &type = jm->type;
 
-        if (type == "chat.system")
-        {
-            std::string text = jm->get_string("text");
-            std::string roomName = jm->get_string("room"); // optionnel
+                           if (type == "chat.system")
+                           {
+                               std::string text     = jm->get_string("text");
+                               std::string roomName = jm->get_string("room"); // optionnel
 
-            if (!roomName.empty())
-                std::cout << "[system][" << roomName << "] " << text << std::endl;
-            else
-                std::cout << "[system] " << text << std::endl;
-        }
-        else if (type == "chat.message")
-        {
-            std::string user = jm->get_string("user");
-            std::string text = jm->get_string("text");
-            std::string roomName = jm->get_string("room");
+                               if (!roomName.empty())
+                               {
+                                   std::cout << "[system][" << roomName << "] " << text << std::endl;
+                               }
+                               else
+                               {
+                                   std::cout << "[system] " << text << std::endl;
+                               }
+                           }
+                           else if (type == "chat.message")
+                           {
+                               std::string user     = jm->get_string("user");
+                               std::string text     = jm->get_string("text");
+                               std::string roomName = jm->get_string("room");
 
-            if (user.empty())
-                user = "anonymous";
+                               if (user.empty())
+                                   user = "anonymous";
 
-            if (!roomName.empty())
-                std::cout << "[chat][" << roomName << "] " << user << ": " << text << std::endl;
-            else
-                std::cout << "[chat] " << user << ": " << text << std::endl;
-        }
-        else
-        {
-            std::cout << msg << std::endl;
-        } });
+                               if (!roomName.empty())
+                               {
+                                   std::cout << "[chat][" << roomName << "] " << user << ": " << text << std::endl;
+                               }
+                               else
+                               {
+                                   std::cout << "[chat] " << user << ": " << text << std::endl;
+                               }
+                           }
+                           else
+                           {
+                               // Types non gérés explicitement → dump brut
+                               std::cout << msg << std::endl;
+                           } });
 
-    client->on_close([]
+    client->on_close([]()
                      { std::cout << "[client] Disconnected." << std::endl; });
 
     client->on_error([](const boost::system::error_code &ec)
                      { std::cerr << "[client] error: " << ec.message() << std::endl; });
 
+    // Auto-reconnect + heartbeat
     client->enable_auto_reconnect(true, std::chrono::seconds(3));
     client->enable_heartbeat(std::chrono::seconds(20));
 
-    client->connect();
+    return client;
+}
 
-    // ───────────── Loop input ─────────────
+/**
+ * @brief Boucle CLI : gère /join, /leave, /quit et envoie les messages.
+ */
+void run_chat_cli(ClientPtr client, std::string user, std::string room)
+{
     std::cout << "Type messages, /join <room>, /leave, /quit\n";
 
     for (std::string line; std::getline(std::cin, line);)
@@ -214,7 +235,7 @@ int main()
             continue;
         }
 
-        // /leave
+        // /leave (reste connecté, mais ne participe plus à la room)
         if (line == "/leave")
         {
             client->send(
@@ -245,7 +266,33 @@ int main()
                 });
         }
     }
+}
 
+int main()
+{
+    // ───────────── Prompt user + room ─────────────
+    std::cout << "Pseudo: ";
+    std::string user;
+    std::getline(std::cin, user);
+    if (user.empty())
+        user = "anonymous";
+
+    std::cout << "Room (ex: general): ";
+    std::string room;
+    std::getline(std::cin, room);
+    if (room.empty())
+        room = "general";
+
+    // Création du client configuré
+    auto client = create_chat_client("localhost", "9090", "/", user, room);
+
+    // Connexion (async à l’intérieur)
+    client->connect();
+
+    // Boucle CLI bloquante
+    run_chat_cli(client, user, room);
+
+    // Fermeture propre
     client->close();
     return 0;
 }

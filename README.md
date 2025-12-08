@@ -306,19 +306,40 @@ modules/websocket/
 
 # 🛣 Roadmap
 
-| Feature                      | Status      |
-| ---------------------------- | ----------- |
-| Dedicated WebSocket server   | ✅          |
-| Typed JSON protocol          | ✅          |
-| Rooms (join/leave/broadcast) | ✅          |
-| SQLite storage (WAL)         | ✅          |
-| Replay by ID                 | ✅          |
-| Prometheus /metrics          | In progress |
-| Presence (online/offline)    | Planned     |
-| Auto-reconnect client        | Planned     |
-| Binary frames                | Planned     |
-| Encrypted channels           | Planned     |
-| Batch messages               | Planned     |
+| Feature                      | Status  |
+| ---------------------------- | ------- |
+| Dedicated WebSocket server   | ✅      |
+| Typed JSON protocol          | ✅      |
+| Rooms (join/leave/broadcast) | ✅      |
+| SQLite storage (WAL)         | ✅      |
+| Replay by ID                 | ✅      |
+| Prometheus /metrics          | ✅      |
+| Presence (online/offline)    | Planned |
+| Auto-reconnect client        | ✅      |
+| Binary frames                | Planned |
+| Encrypted channels           | Planned |
+| Batch messages               | Planned |
+
+# 📚 Documentation
+
+The WebSocket module ships with complete, structured documentation inside the `docs/` folder:
+
+- **[docs/EXAMPLES.md](docs/EXAMPLES.md)**  
+  Simple & advanced examples, including rooms, history replay, and persistence.
+
+- **[docs/CLIENT_GUIDE.md](docs/CLIENT_GUIDE.md)**  
+  Guide for building clients (C++ console + Browser UI).
+
+- **[docs/LONGPOLLING.md](docs/LONGPOLLING.md)**  
+  Explains the offline-first architecture with WebSocket → LongPolling fallback.
+
+- **[docs/TECHNICAL.md](docs/TECHNICAL.md)**  
+  Full expanded documentation, architecture, diagrams, protocol details.
+
+- **[docs/vix_websocket_examples.md](docs/vix_websocket_examples.md)**  
+  Extra examples generated for quick testing and integration.
+
+Documentation directory:
 
 ---
 
