@@ -58,6 +58,15 @@ target_link_libraries(vix-ws-simple-app
         vix::websocket
 )
 
+add_executable(vix-ws-minimal-server
+    src/minimal_ws_server.cpp
+)
+
+target_link_libraries(vix-ws-minimal-server
+    PRIVATE
+        vix::websocket
+)
+
 # ------------------------------------------------------------------------------
 #  Simple WebSocket Client
 # ------------------------------------------------------------------------------

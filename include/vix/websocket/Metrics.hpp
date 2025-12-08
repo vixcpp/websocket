@@ -48,51 +48,44 @@ namespace vix::websocket
 {
     /**
      * @struct WebSocketMetrics
-     * @brief Aggregated counters for WebSocket activity.
-     *
-     * All fields are 64-bit atomics and can be safely incremented from multiple
-     * threads without external synchronization.
-     *
-     * The `render_prometheus()` member produces a textual representation of all
-     * counters using Prometheus' "text exposition format" (v0.0.4).
+     * @brief Aggregated counters for WebSocket + Long-Polling activity.
      */
     struct WebSocketMetrics
     {
+        // ───── Core WebSocket metrics ─────
         std::atomic<std::uint64_t> connections_total{0};
         std::atomic<std::uint64_t> connections_active{0};
         std::atomic<std::uint64_t> messages_in_total{0};
         std::atomic<std::uint64_t> messages_out_total{0};
         std::atomic<std::uint64_t> errors_total{0};
 
+        // ───── Long-polling fallback metrics ─────
+        // Total sessions ever created
+        std::atomic<std::uint64_t> lp_sessions_total{0};
+
+        // Sessions currently considered active (not encore expirées)
+        std::atomic<std::uint64_t> lp_sessions_active{0};
+
+        // Total HTTP /ws/poll calls
+        std::atomic<std::uint64_t> lp_polls_total{0};
+
+        // Nb de messages actuellement bufferisés dans LongPollingManager
+        std::atomic<std::uint64_t> lp_messages_buffered{0};
+
+        // Total de messages enqueued dans le buffer LP
+        std::atomic<std::uint64_t> lp_messages_enqueued_total{0};
+
+        // Total de messages drainés via /ws/poll
+        std::atomic<std::uint64_t> lp_messages_drained_total{0};
+
         /**
          * @brief Render all counters in Prometheus text format.
-         *
-         * This produces a single string containing HELP/TYPE metadata and one
-         * sample per metric. It is intended to be served as
-         * "text/plain; version=0.0.4".
          */
         [[nodiscard]] std::string render_prometheus() const;
     };
 
     /**
      * @brief Run a minimal HTTP server exposing `/metrics` for Prometheus.
-     *
-     * This helper starts a blocking HTTP loop on the given address and port.
-     * For each incoming GET request on `/metrics`, it responds with the output
-     * of `metrics.render_prometheus()`. Any other path returns 404.
-     *
-     * Typical usage is to spawn it on a dedicated thread:
-     * @code{.cpp}
-     * WebSocketMetrics metrics;
-     *
-     * std::thread([&]{
-     *     vix::websocket::run_metrics_http_exporter(metrics, "0.0.0.0", 9100);
-     * }).detach();
-     * @endcode
-     *
-     * @param metrics  Shared metrics instance to read counters from.
-     * @param address  Address to bind (e.g. "0.0.0.0").
-     * @param port     TCP port to listen on (e.g. 9100).
      */
     void run_metrics_http_exporter(WebSocketMetrics &metrics,
                                    const std::string &address = "0.0.0.0",

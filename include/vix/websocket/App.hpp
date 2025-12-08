@@ -1,42 +1,42 @@
 #pragma once
 
+/**
+ * @file App.hpp
+ * @brief High-level WebSocket application wrapper for Vix.cpp.
+ *
+ * This class provides a minimal "sugar" API similar to runtimes that expose
+ * a `ws("/chat", handler)` style interface. It wraps:
+ *
+ *   - vix::config::Config                   (configuration loading)
+ *   - vix::experimental::ThreadPoolExecutor (async scheduling)
+ *   - vix::websocket::Server                (WebSocket server core)
+ *
+ * and installs a single `on_typed_message` callback that dispatches to
+ * user handlers registered via `ws(endpoint, handler)`.
+ *
+ * Notes:
+ *  - For now, the `endpoint` string (e.g. "/chat") is a *logical* label.
+ *    The current implementation does not yet route by HTTP path; every
+ *    registered handler sees all typed messages.
+ *  - This API is designed to evolve later into true path-based routing
+ *    once the underlying HTTP upgrade plumbing exposes the request path.
+ */
+
 #include <vix/websocket/server.hpp>
-#include <vix/websocket/client.hpp>
 #include <vix/websocket/protocol.hpp>
-#include <vix/websocket/MessageStore.hpp>
-#include <vix/websocket/SqliteMessageStore.hpp>
-#include <vix/websocket/Metrics.hpp>
 
 #include <vix/config/Config.hpp>
 #include <vix/experimental/ThreadPoolExecutor.hpp>
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
 namespace vix::websocket
 {
-    /**
-     * @brief High-level WebSocket application wrapper for Vix.cpp.
-     *
-     * This class provides a minimal "sugar" API similar to runtimes that expose
-     * a `ws("/chat", handler)` style interface. It wraps:
-     *
-     *   - vix::config::Config        (configuration loading)
-     *   - vix::experimental::ThreadPoolExecutor (async scheduling)
-     *   - vix::websocket::Server     (WebSocket server core)
-     *
-     * and installs a single `on_typed_message` callback that dispatches to
-     * user handlers registered via `ws(endpoint, handler)`.
-     *
-     * Notes:
-     *  - For now, the `endpoint` string (e.g. "/chat") is a *logical* label.
-     *    The current implementation does not yet route by HTTP path; every
-     *    registered handler sees all typed messages.
-     *  - This API is designed to evolve later into true path-based routing
-     *    once the underlying HTTP upgrade plumbing exposes the request path.
-     */
+    class Session; // Forward declaration if not already included elsewhere.
+
     class App
     {
     public:
@@ -58,13 +58,24 @@ namespace vix::websocket
             std::size_t maxThreads = 8,
             int defaultPrio = 0);
 
+        // Non-copyable / non-movable (owns executor + server + config).
+        App(const App &) = delete;
+        App &operator=(const App &) = delete;
+        App(App &&) = delete;
+        App &operator=(App &&) = delete;
+
         /**
          * @brief Register a WebSocket "endpoint" with a typed-message handler.
          *
          * Example:
          * @code{.cpp}
-         * app.ws("/chat", [](Session& s, const std::string& type, const kvs& payload){
-         *     if (type == "chat.message") { ... }
+         * app.ws("/chat", [](Session& s,
+         *                    const std::string& type,
+         *                    const vix::json::kvs& payload)
+         * {
+         *     if (type == "chat.message") {
+         *         // ...
+         *     }
          * });
          * @endcode
          *
@@ -74,7 +85,7 @@ namespace vix::websocket
          *
          * @return *this for call chaining.
          */
-        App &ws(const std::string &endpoint, TypedHandler handler);
+        [[nodiscard]] App &ws(const std::string &endpoint, TypedHandler handler);
 
         /**
          * @brief Start the underlying WebSocket server and block the calling thread.
@@ -84,20 +95,28 @@ namespace vix::websocket
         void run_blocking();
 
         /**
+         * @brief Stop the underlying WebSocket server.
+         *
+         * This is intended to be called from external shutdown logic
+         * (e.g. HTTP runtime signal handler).
+         */
+        void stop();
+
+        /**
          * @brief Access the underlying WebSocket server for advanced usage.
          */
-        Server &server() noexcept { return server_; }
+        [[nodiscard]] Server &server() noexcept { return server_; }
 
         /**
          * @brief Access the underlying config object.
          */
-        vix::config::Config &config() noexcept { return config_; }
+        [[nodiscard]] vix::config::Config &config() noexcept { return config_; }
 
     private:
         struct Route
         {
-            std::string endpoint;
-            TypedHandler handler;
+            std::string endpoint; ///< Logical endpoint label (e.g. "/chat")
+            TypedHandler handler; ///< User callback for typed messages
         };
 
         vix::config::Config config_;
@@ -106,6 +125,7 @@ namespace vix::websocket
 
         std::vector<Route> routes_;
 
+        /// (Re)install the typed-message dispatcher on the underlying server.
         void install_dispatcher();
     };
 

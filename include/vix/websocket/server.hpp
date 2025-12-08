@@ -33,6 +33,7 @@
 #include <vix/websocket/router.hpp>    // Router
 #include <vix/websocket/session.hpp>   // Session
 #include <vix/websocket/protocol.hpp>  // JsonMessage
+#include <vix/websocket/LongPollingBridge.hpp>
 
 namespace vix::websocket
 {
@@ -86,17 +87,29 @@ namespace vix::websocket
                 {
                     std::string payload{payloadView};
 
-                    // Raw string handler
+                    // 1) Raw string handler (pour compatibilité)
                     if (userOnMessage_)
+                    {
                         userOnMessage_(s, payload);
+                    }
 
-                    // Optional typed JSON { type, payload } handler
+                    // 2) Parse JsonMessage une seule fois
+                    auto parsed = JsonMessage::parse(payload);
+                    if (!parsed)
+                    {
+                        return;
+                    }
+
+                    // 3) WS → Long-poll bridge (si attaché)
+                    if (longPollingBridge_)
+                    {
+                        longPollingBridge_->on_ws_message(*parsed);
+                    }
+
+                    // 4) Typed handler classique { type, payload }
                     if (userOnTypedMessage_)
                     {
-                        if (auto parsed = JsonMessage::parse(payload))
-                        {
-                            userOnTypedMessage_(s, parsed->type, parsed->payload);
-                        }
+                        userOnTypedMessage_(s, parsed->type, parsed->payload);
                     }
                 });
         }
@@ -294,6 +307,20 @@ namespace vix::websocket
             broadcast_room_text(room, JsonMessage::serialize(type, kv));
         }
 
+        /// Attach a long-polling bridge to receive JsonMessage events.
+        ///
+        /// Once attached, every parsed JsonMessage will be forwarded to the bridge.
+        void attach_long_polling_bridge(std::shared_ptr<LongPollingBridge> bridge)
+        {
+            longPollingBridge_ = std::move(bridge);
+        }
+
+        /// Access the long-polling bridge (may be null).
+        std::shared_ptr<LongPollingBridge> long_polling_bridge() const noexcept
+        {
+            return longPollingBridge_;
+        }
+
     private:
         void register_session(std::shared_ptr<Session> s)
         {
@@ -399,6 +426,7 @@ namespace vix::websocket
 
         // Rooms: room id -> list of sessions (non-owning)
         std::unordered_map<RoomId, std::vector<std::weak_ptr<Session>>> rooms_;
+        std::shared_ptr<LongPollingBridge> longPollingBridge_;
 
         // User callbacks
         OpenHandler userOnOpen_;

@@ -14,14 +14,11 @@ namespace vix::websocket
     namespace http = bb::http;
     namespace net = boost::asio;
 
-    // -------------------------------------------------------------------------
-    // WebSocketMetrics::render_prometheus
-    // -------------------------------------------------------------------------
-
     std::string WebSocketMetrics::render_prometheus() const
     {
         std::ostringstream os;
 
+        // ───── WebSocket core ─────
         os << "# HELP vix_ws_connections_total Total WebSocket connections created\n";
         os << "# TYPE vix_ws_connections_total counter\n";
         os << "vix_ws_connections_total " << connections_total.load() << "\n\n";
@@ -30,24 +27,45 @@ namespace vix::websocket
         os << "# TYPE vix_ws_connections_active gauge\n";
         os << "vix_ws_connections_active " << connections_active.load() << "\n\n";
 
-        os << "# HELP vix_ws_messages_in_total Total number of messages received\n";
+        os << "# HELP vix_ws_messages_in_total Total number of WebSocket messages received\n";
         os << "# TYPE vix_ws_messages_in_total counter\n";
         os << "vix_ws_messages_in_total " << messages_in_total.load() << "\n\n";
 
-        os << "# HELP vix_ws_messages_out_total Total number of messages sent\n";
+        os << "# HELP vix_ws_messages_out_total Total number of WebSocket messages sent\n";
         os << "# TYPE vix_ws_messages_out_total counter\n";
         os << "vix_ws_messages_out_total " << messages_out_total.load() << "\n\n";
 
         os << "# HELP vix_ws_errors_total Total number of WebSocket errors\n";
         os << "# TYPE vix_ws_errors_total counter\n";
-        os << "vix_ws_errors_total " << errors_total.load() << "\n";
+        os << "vix_ws_errors_total " << errors_total.load() << "\n\n";
+
+        // ───── Long-polling fallback ─────
+        os << "# HELP vix_ws_lp_sessions_total Total long-polling sessions ever created\n";
+        os << "# TYPE vix_ws_lp_sessions_total counter\n";
+        os << "vix_ws_lp_sessions_total " << lp_sessions_total.load() << "\n\n";
+
+        os << "# HELP vix_ws_lp_sessions_active Current active long-polling sessions\n";
+        os << "# TYPE vix_ws_lp_sessions_active gauge\n";
+        os << "vix_ws_lp_sessions_active " << lp_sessions_active.load() << "\n\n";
+
+        os << "# HELP vix_ws_lp_polls_total Total /ws/poll HTTP calls\n";
+        os << "# TYPE vix_ws_lp_polls_total counter\n";
+        os << "vix_ws_lp_polls_total " << lp_polls_total.load() << "\n\n";
+
+        os << "# HELP vix_ws_lp_messages_buffered Current buffered messages for long-polling\n";
+        os << "# TYPE vix_ws_lp_messages_buffered gauge\n";
+        os << "vix_ws_lp_messages_buffered " << lp_messages_buffered.load() << "\n\n";
+
+        os << "# HELP vix_ws_lp_messages_enqueued_total Total messages enqueued into long-poll buffers\n";
+        os << "# TYPE vix_ws_lp_messages_enqueued_total counter\n";
+        os << "vix_ws_lp_messages_enqueued_total " << lp_messages_enqueued_total.load() << "\n\n";
+
+        os << "# HELP vix_ws_lp_messages_drained_total Total messages drained via /ws/poll\n";
+        os << "# TYPE vix_ws_lp_messages_drained_total counter\n";
+        os << "vix_ws_lp_messages_drained_total " << lp_messages_drained_total.load() << "\n";
 
         return os.str();
     }
-
-    // -------------------------------------------------------------------------
-    // run_metrics_http_exporter
-    // -------------------------------------------------------------------------
 
     void run_metrics_http_exporter(WebSocketMetrics &metrics,
                                    const std::string &address,
@@ -95,8 +113,6 @@ namespace vix::websocket
         }
         catch (const std::exception &e)
         {
-            // Logging is intentionally minimal here to avoid depending on
-            // vix::utils::Logger from this helper.
             std::cerr << "[websocket][metrics] server error: " << e.what() << "\n";
         }
     }
