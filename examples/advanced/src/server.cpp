@@ -78,148 +78,58 @@
  * This file is part of the Vix.cpp WebSocket module examples and is meant
  * to serve as a reference for building robust real-time systems in C++20.
  */
-
 #include <iostream>
 #include <string>
 
 #include <nlohmann/json.hpp>
-#include <vix/config/Config.hpp>
-#include <vix/experimental/ThreadPoolExecutor.hpp>
 
 #include <vix/websocket.hpp>
+#include <vix/websocket/Metrics.hpp>
+#include <vix/websocket/SqliteMessageStore.hpp>
+#include <vix/websocket/protocol.hpp>
 
 #include <atomic>
 #include <cstdint>
 #include <sstream>
-
-#include <boost/beast/http.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/asio/ip/tcp.hpp>
 #include <thread>
-
-namespace bb = boost::beast;
-namespace http = bb::http;
-namespace net = boost::asio;
-using tcp = net::ip::tcp;
-
-// ─────────────────────────────────────────────
-// 1) Struct WebSocketMetrics AVANT la fonction
-// ─────────────────────────────────────────────
-struct WebSocketMetrics
-{
-    std::atomic<std::uint64_t> connections_total{0};
-    std::atomic<std::uint64_t> connections_active{0};
-    std::atomic<std::uint64_t> messages_in_total{0};
-    std::atomic<std::uint64_t> messages_out_total{0};
-    std::atomic<std::uint64_t> errors_total{0};
-
-    std::string render_prometheus() const
-    {
-        std::ostringstream os;
-
-        os << "# HELP vix_ws_connections_total Total WebSocket connections created\n";
-        os << "# TYPE vix_ws_connections_total counter\n";
-        os << "vix_ws_connections_total " << connections_total.load() << "\n\n";
-
-        os << "# HELP vix_ws_connections_active Current active WebSocket connections\n";
-        os << "# TYPE vix_ws_connections_active gauge\n";
-        os << "vix_ws_connections_active " << connections_active.load() << "\n\n";
-
-        os << "# HELP vix_ws_messages_in_total Total number of messages received\n";
-        os << "# TYPE vix_ws_messages_in_total counter\n";
-        os << "vix_ws_messages_in_total " << messages_in_total.load() << "\n\n";
-
-        os << "# HELP vix_ws_messages_out_total Total number of messages sent\n";
-        os << "# TYPE vix_ws_messages_out_total counter\n";
-        os << "vix_ws_messages_out_total " << messages_out_total.load() << "\n\n";
-
-        os << "# HELP vix_ws_errors_total Total number of WebSocket errors\n";
-        os << "# TYPE vix_ws_errors_total counter\n";
-        os << "vix_ws_errors_total " << errors_total.load() << "\n";
-
-        return os.str();
-    }
-};
-
-// ─────────────────────────────────────────────
-// 2) Ensuite la fonction run_metrics_server
-// ─────────────────────────────────────────────
-void run_metrics_server(WebSocketMetrics &metrics,
-                        const std::string &address = "0.0.0.0",
-                        std::uint16_t port = 9100)
-{
-    try
-    {
-        net::io_context ioc{1};
-        tcp::acceptor acceptor{ioc, {net::ip::make_address(address), port}};
-
-        for (;;)
-        {
-            tcp::socket socket{ioc};
-            acceptor.accept(socket);
-
-            bb::flat_buffer buffer;
-            http::request<http::string_body> req;
-            http::read(socket, buffer, req);
-
-            http::response<http::string_body> res;
-
-            if (req.method() == http::verb::get &&
-                req.target() == "/metrics")
-            {
-                std::string body = metrics.render_prometheus();
-
-                res.result(http::status::ok);
-                res.version(req.version());
-                res.set(http::field::content_type, "text/plain; version=0.0.4");
-                res.body() = std::move(body);
-                res.prepare_payload();
-            }
-            else
-            {
-                res = http::response<http::string_body>(
-                    http::status::not_found, req.version());
-                res.set(http::field::content_type, "text/plain");
-                res.body() = "Not Found\n";
-                res.prepare_payload();
-            }
-
-            http::write(socket, res);
-            socket.shutdown(tcp::socket::shutdown_send);
-        }
-    }
-    catch (const std::exception &e)
-    {
-        std::cerr << "[metrics] server error: " << e.what() << "\n";
-    }
-}
 
 int main()
 {
+    using vix::websocket::App;
     using vix::websocket::JsonMessage;
     using vix::websocket::Session;
+    using vix::websocket::WebSocketMetrics;
     using vix::websocket::detail::ws_kvs_to_nlohmann;
 
-    vix::config::Config cfg{"config/config.json"};
+    // ─────────────────────────────────────────────
+    // 1) App WebSocket haut niveau (Config + ThreadPool inside)
+    // ─────────────────────────────────────────────
+    App app{"config/config.json"};
 
-    auto exec = vix::experimental::make_threadpool_executor(
-        4, // min threads
-        8, // max threads
-        0  // default prio
-    );
+    // Accès au serveur sous-jacent
+    auto &ws = app.server();
 
-    vix::websocket::Server ws(cfg, std::move(exec));
-
+    // ─────────────────────────────────────────────
+    // 2) Metrics + exporter HTTP /metrics
+    // ─────────────────────────────────────────────
     WebSocketMetrics metrics;
 
     std::thread metricsThread([&metrics]()
-                              { run_metrics_server(metrics, "0.0.0.0", 9100); });
+                              { vix::websocket::run_metrics_http_exporter(
+                                    metrics,
+                                    "0.0.0.0",
+                                    9100); });
     metricsThread.detach();
 
+    // ─────────────────────────────────────────────
+    // 3) Store persistant SQLite (WAL activé dans le ctor)
+    // ─────────────────────────────────────────────
     vix::websocket::SqliteMessageStore store{"chat_messages.db"};
-
     constexpr std::size_t HISTORY_LIMIT = 50;
 
+    // ─────────────────────────────────────────────
+    // 4) on_open : welcome privé + métriques globales
+    // ─────────────────────────────────────────────
     ws.on_open(
         [&store, &metrics](Session &session)
         {
@@ -241,11 +151,23 @@ int main()
             msg.room = "";
             msg.payload = payload;
 
+            // log dans SQLite
             store.append(msg);
+
+            // envoyer juste à ce client
             session.send_text(JsonMessage::serialize(msg));
         });
 
-    ws.on_typed_message(
+    // (optionnel, si tu as un hook on_close côté Server)
+    // ws.on_close([&metrics](Session&) {
+    //     metrics.connections_active.fetch_sub(1, std::memory_order_relaxed);
+    // });
+
+    // ─────────────────────────────────────────────
+    // 5) Logique applicative via App::ws("/chat", handler)
+    // ─────────────────────────────────────────────
+    app.ws(
+        "/chat",
         [&ws, &store, &metrics](Session &session,
                                 const std::string &type,
                                 const vix::json::kvs &payload)
@@ -374,5 +296,8 @@ int main()
             }
         });
 
-    ws.listen_blocking();
+    // ─────────────────────────────────────────────
+    // 6) Démarrage bloquant
+    // ─────────────────────────────────────────────
+    app.run_blocking();
 }

@@ -43,3 +43,6 @@ cmd.md
 build/
 build-ninja/
 vix.log
+chat_messages.db
+chat_messages.db-shm
+chat_messages.db-wal

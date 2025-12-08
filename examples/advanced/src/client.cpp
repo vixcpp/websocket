@@ -76,7 +76,7 @@
 #include <iostream>
 #include <string>
 
-#include <vix/websocket.hpp>
+#include <vix/websocket.hpp> // expose Client + JsonMessage
 
 int main()
 {
@@ -85,6 +85,7 @@ int main()
 
     auto client = Client::create("localhost", "9090", "/");
 
+    // ───────────── Prompt user + room ─────────────
     std::cout << "Pseudo: ";
     std::string user;
     std::getline(std::cin, user);
@@ -103,16 +104,19 @@ int main()
                s.compare(0, prefix.size(), prefix) == 0;
     };
 
+    // ───────────── Handlers ─────────────
+
     client->on_open([&client, user, room]
                     {
         std::cout << "[client] Connected ✅" << std::endl;
 
-        client->send_json_message(
+        // Dès que connecté → join de la room courante
+        client->send(
             "chat.join",
-        {
-            "room", room,
-            "user", user,
-        }); });
+            {
+                "room", room,
+                "user", user,
+            }); });
 
     client->on_message([](const std::string &msg)
                        {
@@ -140,7 +144,7 @@ int main()
         {
             std::string user = jm->get_string("user");
             std::string text = jm->get_string("text");
-            std::string roomName = jm->get_string("room"); // optionnel
+            std::string roomName = jm->get_string("room");
 
             if (user.empty())
                 user = "anonymous";
@@ -166,6 +170,7 @@ int main()
 
     client->connect();
 
+    // ───────────── Loop input ─────────────
     std::cout << "Type messages, /join <room>, /leave, /quit\n";
 
     for (std::string line; std::getline(std::cin, line);)
@@ -173,7 +178,7 @@ int main()
         if (line == "/quit")
             break;
 
-        // Commande: /join <room>
+        // /join <room>
         if (starts_with(line, "/join "))
         {
             std::string newRoom = line.substr(6);
@@ -183,7 +188,8 @@ int main()
                 continue;
             }
 
-            client->send_json_message(
+            // Leave ancienne room
+            client->send(
                 "chat.leave",
                 {
                     "room",
@@ -194,7 +200,8 @@ int main()
 
             room = newRoom;
 
-            client->send_json_message(
+            // Join nouvelle room
+            client->send(
                 "chat.join",
                 {
                     "room",
@@ -207,10 +214,10 @@ int main()
             continue;
         }
 
-        // Commande: /leave
+        // /leave
         if (line == "/leave")
         {
-            client->send_json_message(
+            client->send(
                 "chat.leave",
                 {
                     "room",
@@ -223,9 +230,10 @@ int main()
             continue;
         }
 
+        // Message normal → chat.message dans la room courante
         if (!line.empty())
         {
-            client->send_json_message(
+            client->send(
                 "chat.message",
                 {
                     "room",

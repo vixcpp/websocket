@@ -25,3 +25,4 @@
 #include <vix/websocket/router.hpp>
 #include <vix/websocket/MessageStore.hpp>
 #include <vix/websocket/SqliteMessageStore.hpp>
+#include <vix/websocket/App.hpp>

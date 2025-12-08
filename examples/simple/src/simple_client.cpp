@@ -79,21 +79,20 @@ int main()
             return;
         }
 
-        std::string type = jm->type;
+        const std::string &type = jm->type;
 
         if (type == "chat.system")
         {
-            std::string text = jm->get_string("text");
-            std::cout << "[system] " << text << std::endl;
+            std::cout << "[system] " << jm->get_string("text") << std::endl;
         }
         else if (type == "chat.message")
         {
             std::string user = jm->get_string("user");
-            std::string text = jm->get_string("text");
+            if (user.empty())
+                user = "anonymous";
 
-            if (user.empty()) user = "anonymous";
-
-            std::cout << "[chat] " << user << ": " << text << std::endl;
+            std::cout << "[chat] " << user
+                      << ": " << jm->get_string("text") << std::endl;
         }
         else
         {
@@ -111,9 +110,7 @@ int main()
 
     client->connect();
 
-    // -------------------------
     // Prompt username
-    // -------------------------
     std::cout << "Pseudo: ";
     std::string user;
     std::getline(std::cin, user);
@@ -122,21 +119,20 @@ int main()
 
     std::cout << "Type messages, /quit to exit\n";
 
-    // -------------------------
-    // Message sending loop
-    // -------------------------
+    // Message loop
     for (std::string line; std::getline(std::cin, line);)
     {
         if (line == "/quit")
             break;
 
-        client->send_json_message("chat.message",
-                                  {
-                                      "user",
-                                      user,
-                                      "text",
-                                      line,
-                                  });
+        client->send(
+            "chat.message",
+            {
+                "user",
+                user,
+                "text",
+                line,
+            });
     }
 
     client->close();
