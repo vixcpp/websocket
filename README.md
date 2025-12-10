@@ -19,6 +19,62 @@ offline-first applications such as **Softadastra Chat**.
 - Tunable message limits, ping interval, idle timeout
 - Transparent backpressure handling
 
+## 🚀 1. Quick Start – Minimal WebSocket Server
+
+File: **simple_server.cpp**
+
+```cpp
+#include <vix/websocket.hpp>
+
+using vix::websocket::Server;
+
+int main() {
+    Server ws;
+
+    ws.on_open([](auto& session) {
+        session.send_json("chat.system", {"text", "Welcome 👋"});
+    });
+
+    ws.on_typed_message([](auto& session,
+                           const std::string& type,
+                           const vix::json::kvs& payload)
+    {
+        if (type == "chat.message")
+            session.broadcast_json("chat.message", payload);
+    });
+
+    ws.listen_blocking();
+}
+```
+
+Build:
+
+```bash
+vix run server.cpp
+```
+
+---
+
+## 💬 2. Minimal WebSocket Client
+
+File: **simple_client.cpp**
+
+```cpp
+auto client = Client::create("localhost", "9090", "/");
+
+client->on_open([] {
+    std::cout << "Connected!" << std::endl;
+});
+
+client->send("chat.message", {"text", "Hello world!"});
+```
+
+Run:
+
+```bash
+vix run client.cpp
+```
+
 ---
 
 ## 🏠 Room-Based Messaging (join/leave/broadcast)

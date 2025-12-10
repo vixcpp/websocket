@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-## [1.0.0] - 2025-12-08
+## [1.1.0] - 2025-12-11
 
 ### Added
 - 
@@ -16,40 +16,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - 
+
+
+websocket: introduce runtime layer and refresh examples
+
+• Added new websocket runtime system: - include/vix/websocket/Runtime.hpp - include/vix/websocket/AttachedRuntime.hpp
+providing a dedicated io_context, lifecycle management, and attach-to-HTTP mode.
+• Added new example demo files: - examples/chat_room.cpp - examples/simple_client.cpp - examples/simple_server.cpp
+• Updated existing example sources: - advanced/server.cpp to use new runtime API & metrics - simple/minimal_ws_server.cpp cleanup and API alignment
+• Revised examples/CMakeLists.txt to: - build all demos consistently - expose runtime headers correctly
+This prepares the module for integration with Vix::App and upcoming WS routing features.
+
+## [1.0.0] - 2025-12-08
+
+### Added
+
+-
+
+### Changed
+
+-
+
+### Removed
+
+-
 
 ## [0.3.0] - 2025-12-08
 
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
+
+-
 
 ## [0.2.0] - 2025-12-07
 
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
+
+-
 
 ## [0.1.3] - 2025-12-07
 
 ### Added
-- 
+
+-
 
 ### Changed
-- 
+
+-
 
 ### Removed
-- 
 
+-
 
 ## [0.1.2] - 2025-12-07
 
