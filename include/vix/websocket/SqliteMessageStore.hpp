@@ -5,44 +5,32 @@
 #include <vector>
 #include <optional>
 
-#include <sqlite3.h>
-
 #include <vix/websocket/MessageStore.hpp>
 #include <vix/websocket/protocol.hpp>
 
+struct sqlite3;
+
 namespace vix::websocket
 {
-    /**
-     * @brief Implémentation SQLite de IMessageStore, avec WAL activé.
-     *
-     * Schéma:
-     *
-     *   CREATE TABLE IF NOT EXISTS messages (
-     *       id           TEXT PRIMARY KEY,
-     *       kind         TEXT NOT NULL,
-     *       room         TEXT,
-     *       type         TEXT NOT NULL,
-     *       ts           TEXT NOT NULL,
-     *       payload_json TEXT NOT NULL
-     *   );
-     *
-     * - journal_mode = WAL
-     * - id est une string lexicographiquement ordonnée (zéro-padding)
-     */
     class SqliteMessageStore : public IMessageStore
     {
     public:
         explicit SqliteMessageStore(const std::string &db_path);
         ~SqliteMessageStore() override;
 
+        SqliteMessageStore(const SqliteMessageStore &) = delete;
+        SqliteMessageStore &operator=(const SqliteMessageStore &) = delete;
+        SqliteMessageStore(SqliteMessageStore &&) = delete;
+        SqliteMessageStore &operator=(SqliteMessageStore &&) = delete;
+
         void append(const JsonMessage &msg) override;
 
-        std::vector<JsonMessage> list_by_room(
+        [[nodiscard]] std::vector<JsonMessage> list_by_room(
             const std::string &room,
             std::size_t limit,
             const std::optional<std::string> &before_id = std::nullopt) override;
 
-        std::vector<JsonMessage> replay_from(
+        [[nodiscard]] std::vector<JsonMessage> replay_from(
             const std::string &start_id,
             std::size_t limit) override;
 

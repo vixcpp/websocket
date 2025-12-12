@@ -1,9 +1,11 @@
+#include <sqlite3.h>
 #include <vix/websocket/SqliteMessageStore.hpp>
 
 #include <stdexcept>
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
 
 #include <nlohmann/json.hpp>
 

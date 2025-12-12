@@ -114,7 +114,7 @@ namespace vix::websocket
         /// Start resolve, connect, handshake and I/O thread.
         void connect()
         {
-            if (!alive_ || closing_)
+            if (!alive_.load(std::memory_order_relaxed) || closing_.load(std::memory_order_relaxed))
                 return;
 
             bool expected = false;
@@ -270,8 +270,12 @@ namespace vix::websocket
             if (closing_.exchange(true))
                 return;
 
-            alive_ = false;
-            heartbeatStop_ = true;
+            alive_.store(false, std::memory_order_relaxed);
+            heartbeatStop_.store(true, std::memory_order_relaxed);
+
+            // Empêche toute reconnexion future
+            autoReconnect_.store(false, std::memory_order_relaxed);
+            reconnectScheduled_.store(false, std::memory_order_relaxed);
 
             auto self = shared_from_this();
 
@@ -297,10 +301,10 @@ namespace vix::websocket
             if (ioc_)
                 ioc_->stop();
 
-            if (ioThread_.joinable())
+            if (ioThread_.joinable() && std::this_thread::get_id() != ioThread_.get_id())
                 ioThread_.join();
 
-            if (heartbeatThread_.joinable())
+            if (heartbeatThread_.joinable() && std::this_thread::get_id() != heartbeatThread_.get_id())
                 heartbeatThread_.join();
         }
 
@@ -367,9 +371,10 @@ namespace vix::websocket
             // On reconnect, ensure previous context is fully stopped
             if (ioc_)
                 ioc_->stop();
-            if (ioThread_.joinable())
+            if (ioThread_.joinable() && std::this_thread::get_id() != ioThread_.get_id())
                 ioThread_.join();
-            if (heartbeatThread_.joinable())
+
+            if (heartbeatThread_.joinable() && std::this_thread::get_id() != heartbeatThread_.get_id())
                 heartbeatThread_.join();
 
             ioc_ = std::make_unique<net::io_context>();
@@ -377,9 +382,9 @@ namespace vix::websocket
             ws_ = std::make_unique<websocket::stream<tcp::socket>>(*ioc_);
             buffer_.consume(buffer_.size());
 
-            connected_ = false;
-            closing_ = false;
-            heartbeatStop_ = false;
+            connected_.store(false, std::memory_order_relaxed);
+            closing_.store(false, std::memory_order_relaxed);
+            heartbeatStop_.store(false, std::memory_order_relaxed);
         }
 
         // ───────────── Pipeline: resolve → connect → handshake → read ─────────────
@@ -441,7 +446,7 @@ namespace vix::websocket
                         return;
                     }
 
-                    self->connected_ = true;
+                    self->connected_.store(true, std::memory_order_relaxed);
                     if (self->onOpen_)
                         self->onOpen_();
 
@@ -467,7 +472,7 @@ namespace vix::websocket
                             self->emit_error(ec, "read");
                         }
 
-                        self->connected_ = false;
+                        self->connected_.store(false, std::memory_order_relaxed);
                         if (self->onClose_)
                             self->onClose_();
 
@@ -496,11 +501,15 @@ namespace vix::websocket
             auto self = shared_from_this();
             heartbeatThread_ = std::thread([self]()
                                            {
-                while (!self->heartbeatStop_ && self->alive_)
+             while (!self->heartbeatStop_.load(std::memory_order_relaxed) &&
+                                              self->alive_.load(std::memory_order_relaxed))
                 {
                     std::this_thread::sleep_for(self->heartbeatInterval_);
-                    if (!self->connected_ || self->closing_ || self->heartbeatStop_)
+                 if (!self->connected_.load(std::memory_order_relaxed) ||
+                        self->closing_.load(std::memory_order_relaxed) ||
+                        self->heartbeatStop_.load(std::memory_order_relaxed))
                         continue;
+
 
                     self->send_ping();
                 } });
@@ -510,7 +519,9 @@ namespace vix::websocket
 
         void maybe_schedule_reconnect(const boost::system::error_code &ec)
         {
-            if (!autoReconnect_ || closing_ || !alive_)
+            if (!autoReconnect_.load(std::memory_order_relaxed) ||
+                closing_.load(std::memory_order_relaxed) ||
+                !alive_.load(std::memory_order_relaxed))
                 return;
 
             // "Normal" closure: do not reconnect automatically.
@@ -525,17 +536,18 @@ namespace vix::websocket
             auto self = shared_from_this();
             std::thread([self]()
                         {
-                std::this_thread::sleep_for(self->reconnectDelay_);
+                            std::this_thread::sleep_for(self->reconnectDelay_);
 
-                if (!self->alive_ || self->closing_)
-                {
-                    self->reconnectScheduled_ = false;
-                    return;
-                }
+                            if (!self->alive_.load(std::memory_order_relaxed) ||
+                                self->closing_.load(std::memory_order_relaxed))
+                            {
+                                self->reconnectScheduled_.store(false, std::memory_order_relaxed);
+                                return;
+                            }
 
-                self->started_            = false;
-                self->reconnectScheduled_ = false;
-                self->connect(); })
+                            self->started_.store(false, std::memory_order_relaxed);
+                            self->reconnectScheduled_.store(false, std::memory_order_relaxed);
+                            self->connect(); })
                 .detach();
         }
 
