@@ -182,12 +182,14 @@ namespace vix::websocket
     ///
     struct JsonMessage
     {
-        std::string id;         ///< optional stable identifier for WAL / DB
-        std::string kind;       ///< "event", "system", "error", ...
-        std::string ts;         ///< ISO-8601 UTC timestamp (optional)
-        std::string room;       ///< logical channel / room (optional)
-        std::string type;       ///< business message type (required)
-        vix::json::kvs payload; ///< business payload as flat kvs
+        std::string id{};
+        std::string kind{"event"};
+        std::string ts{};
+        std::string room{};
+        std::string type{};
+        vix::json::kvs payload{};
+
+        JsonMessage() = default;
 
         // ---- Client-friendly helpers on payload ------------------------------
 

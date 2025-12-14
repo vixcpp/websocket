@@ -16,7 +16,7 @@ namespace vix::websocket
     LongPollingManager::LongPollingManager(LongPollingManager &&other) noexcept
         : sessionTtl_(other.sessionTtl_),
           maxBufferPerSession_(other.maxBufferPerSession_),
-          // mutex_ est reconstruit par défaut
+          mutex_(),
           sessions_(std::move(other.sessions_)),
           metrics_(other.metrics_)
     {
@@ -27,7 +27,6 @@ namespace vix::websocket
         if (this == &other)
             return *this;
 
-        // On verrouille les deux mutex pour un move "propre"
         std::scoped_lock lock(mutex_, other.mutex_);
 
         sessionTtl_ = other.sessionTtl_;

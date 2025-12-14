@@ -71,30 +71,8 @@ endif()
 
 set(VIX_CORE_TARGET vix::core)
 
-# ------------------------ Utils dependency (robust) ------------------
-# WebSocket code utilise directement vix::utils::Logger, donc on a
-# besoin d'un target utils visible pour les includes + linkage.
-option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
-
-if (NOT TARGET vix::utils AND NOT TARGET vix::utils)
-  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
-    message(STATUS "[websocket] Adding utils from umbrella: ../utils")
-    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
-  elseif (VIX_WEBSOCKET_FETCH_UTILS)
-    include(FetchContent)
-    message(STATUS "[websocket] Fetching vix::utils via FetchContent")
-    # ⚠️ aligne le tag avec utils
-    FetchContent_Declare(vix_utils
-      GIT_REPOSITORY https://github.com/vixcpp/utils.git
-      GIT_TAG        v1.7.1
-    )
-    FetchContent_MakeAvailable(vix_utils)
-  else()
-    message(FATAL_ERROR
-      "vix::utils not found. Enable VIX_WEBSOCKET_FETCH_UTILS=ON or "
-      "provide the target before websocket.")
-  endif()
-endif()
+# Websocket uses Logger but core already brings vix::utils
+set(VIX_UTILS_TARGET vix::utils)
 
 # Normalisation du nom (comme dans core)
 set(VIX_UTILS_TARGET vix::utils)
@@ -181,9 +159,8 @@ if (WEBSOCKET_SOURCES)
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
-      ${VIX_UTILS_TARGET}
       Boost::system
-      SQLite::SQLite3          
+      SQLite::SQLite3
   )
 
   # Optional JSON linkage

@@ -1,9 +1,11 @@
+#include <sqlite3.h>
 #include <vix/websocket/SqliteMessageStore.hpp>
 
 #include <stdexcept>
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
 
 #include <nlohmann/json.hpp>
 
@@ -129,7 +131,7 @@ namespace vix::websocket
 #else
             gmtime_r(&tt, &tm);
 #endif
-            char buf[32];
+            char buf[64];
             std::snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02dZ",
                           tm.tm_year + 1900,
                           tm.tm_mon + 1,

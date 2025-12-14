@@ -53,7 +53,16 @@ namespace vix::websocket
             : cfg_(cfg),
               executor_(std::move(executor)),
               router_(std::make_shared<Router>()),
-              engine_(cfg_, executor_, router_)
+              engine_(cfg_, executor_, router_),
+              sessionsMutex_(),
+              sessions_(),
+              rooms_(),
+              longPollingBridge_(nullptr),
+              userOnOpen_(),
+              userOnClose_(),
+              userOnError_(),
+              userOnMessage_(),
+              userOnTypedMessage_()
         {
             // Connect router to internal handlers
             router_->on_open(
@@ -429,7 +438,7 @@ namespace vix::websocket
         std::shared_ptr<LongPollingBridge> longPollingBridge_;
 
         // User callbacks
-        OpenHandler userOnOpen_;
+        OpenHandler userOnOpen_{};
         CloseHandler userOnClose_;
         ErrorHandler userOnError_;
         MessageHandler userOnMessage_;
