@@ -58,7 +58,7 @@ namespace vix::websocket
         void start_io_threads();
         void handle_client(tcp::socket socket);
 
-        int compute_io_thread_count() const;
+        std::size_t compute_io_thread_count() const;
 
     private:
         vix::config::Config &coreConfig_;

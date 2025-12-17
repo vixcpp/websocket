@@ -16,23 +16,26 @@ namespace vix::websocket
 
     namespace
     {
-        void set_affinity(int thread_id)
+        void set_affinity(std::size_t thread_index)
         {
 #ifdef __linux__
             unsigned int hc = std::thread::hardware_concurrency();
-            if (hc == 0)
-                hc = 1;
+            if (hc == 0u)
+                hc = 1u;
+
+            const unsigned int cpu =
+                static_cast<unsigned int>(thread_index % static_cast<std::size_t>(hc));
 
             cpu_set_t cpuset;
             CPU_ZERO(&cpuset);
-            CPU_SET(thread_id % hc, &cpuset);
+            CPU_SET(cpu, &cpuset);
 
             (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #else
-            (void)thread_id;
+            (void)thread_index;
 #endif
         }
-    } // namespace
+    }
 
     LowLevelServer::LowLevelServer(vix::config::Config &coreConfig,
                                    std::shared_ptr<vix::executor::IExecutor> executor,
@@ -129,36 +132,35 @@ namespace vix::websocket
         session->run();
     }
 
-    int LowLevelServer::compute_io_thread_count() const
+    std::size_t LowLevelServer::compute_io_thread_count() const
     {
-        unsigned int hc = std::thread::hardware_concurrency();
-        return static_cast<int>(std::max(1u, hc ? hc / 2 : 1u));
+        const unsigned int hc = std::thread::hardware_concurrency();
+        const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
+        return static_cast<std::size_t>(std::max(1u, v));
     }
 
     void LowLevelServer::start_io_threads()
     {
-        int n = compute_io_thread_count();
-        ioThreads_.reserve(static_cast<std::size_t>(n));
+        const std::size_t n = static_cast<std::size_t>(compute_io_thread_count());
+        ioThreads_.reserve(n);
 
-        for (int i = 0; i < n; ++i)
+        for (std::size_t i = 0; i < n; ++i)
         {
-            ioThreads_.emplace_back(
-                [this, i]()
-                {
-                    try
-                    {
-                        set_affinity(i);
-                        ioContext_->run();
-                    }
-                    catch (const std::exception &e)
-                    {
-                        logger.log(Logger::Level::ERROR,
-                                   "[WebSocket][Server] IO thread {} error: {}", i, e.what());
-                    }
+            ioThreads_.emplace_back([this, i]()
+                                    {
+        try
+        {
+            set_affinity(i);
+            ioContext_->run();
+        }
+        catch (const std::exception &e)
+        {
+            logger.log(Logger::Level::ERROR,
+                       "[WebSocket][Server] IO thread {} error: {}", i, e.what());
+        }
 
-                    logger.log(Logger::Level::INFO,
-                               "[WebSocket][Server] IO thread {} finished", i);
-                });
+        logger.log(Logger::Level::INFO,
+                   "[WebSocket][Server] IO thread {} finished", i); });
         }
     }
 

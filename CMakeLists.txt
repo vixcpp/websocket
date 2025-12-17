@@ -36,11 +36,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Friendly warnings (aligned with core)
-set(GLOBAL_CXX_FLAGS "-Wall -Wextra -Wshadow -Weffc++")
-set(CMAKE_CXX_FLAGS_RELEASE "${GLOBAL_CXX_FLAGS} -O2 -DNDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG   "${GLOBAL_CXX_FLAGS} -g")
-
 # ------------------------ Sources discovery --------------------------
 # If any .cpp exists under src/, we switch to STATIC build mode.
 file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -48,6 +43,7 @@ file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 # ------------------------ Core dependency ----------------------------
 # We need vix::core (which itself may bring vix::utils, Boost, OpenSSL, ...).
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
+option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
 
 if (NOT TARGET vix::core)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../core/CMakeLists.txt")
@@ -70,15 +66,7 @@ if (NOT TARGET vix::core)
 endif()
 
 set(VIX_CORE_TARGET vix::core)
-
-# Websocket uses Logger but core already brings vix::utils
 set(VIX_UTILS_TARGET vix::utils)
-
-# Normalisation du nom (comme dans core)
-set(VIX_UTILS_TARGET vix::utils)
-if (NOT TARGET ${VIX_UTILS_TARGET} AND TARGET vix::utils)
-  set(VIX_UTILS_TARGET vix::utils)
-endif()
 
 # ------------------------ JSON linkage policy ------------------------
 # AUTO: link if a known JSON target exists, else define VIX_WEBSOCKET_NO_JSON
@@ -117,24 +105,6 @@ function(vix_websocket_try_link_json onto link_scope)
   endif()
 endfunction()
 
-# ------------------------ Helper: Sanitizers -------------------------
-function(vix_websocket_apply_sanitizers tgt scope)
-  if (VIX_ENABLE_SANITIZERS AND TARGET ${tgt})
-    message(STATUS "[websocket] enabling sanitizers on ${tgt} (${scope})")
-    if (${scope} STREQUAL "PRIVATE")
-      target_compile_options(${tgt} PRIVATE
-        -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined)
-      target_link_options(${tgt} PRIVATE
-        -fsanitize=address,undefined)
-    else() # INTERFACE
-      target_compile_options(${tgt} INTERFACE
-        -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined)
-      target_link_options(${tgt} INTERFACE
-        -fsanitize=address,undefined)
-    endif()
-  endif()
-endfunction()
-
 # ============================== STATIC ===============================
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
@@ -149,6 +119,15 @@ if (WEBSOCKET_SOURCES)
   add_library(vix::websocket ALIAS vix_websocket)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
+
+  # Inherit umbrella warnings/sanitizers if present
+  if (TARGET vix_warnings)
+    target_link_libraries(vix_websocket PUBLIC vix_warnings)
+  endif()
+
+  if (TARGET vix_sanitizers)
+    target_link_libraries(vix_websocket PUBLIC vix_sanitizers)
+  endif()
 
   target_include_directories(vix_websocket
     PUBLIC
@@ -165,9 +144,6 @@ if (WEBSOCKET_SOURCES)
 
   # Optional JSON linkage
   vix_websocket_try_link_json(vix_websocket PUBLIC)
-
-  # Sanitizers (only if enabled at top-level)
-  vix_websocket_apply_sanitizers(vix_websocket PRIVATE)
 
   set_target_properties(vix_websocket PROPERTIES
     OUTPUT_NAME vix_websocket
@@ -197,6 +173,15 @@ else()
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket INTERFACE cxx_std_20)
 
+  # Inherit umbrella warnings/sanitizers if present
+  if (TARGET vix_warnings)
+    target_link_libraries(vix_websocket INTERFACE vix_warnings)
+  endif()
+
+  if (TARGET vix_sanitizers)
+    target_link_libraries(vix_websocket INTERFACE vix_sanitizers)
+  endif()
+
   target_include_directories(vix_websocket INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -208,7 +193,6 @@ else()
   )
 
   vix_websocket_try_link_json(vix_websocket INTERFACE)
-  vix_websocket_apply_sanitizers(vix_websocket INTERFACE)
 
   install(TARGETS vix_websocket
     EXPORT VixTargets
@@ -238,7 +222,6 @@ message(STATUS "Core target:          ${VIX_CORE_TARGET}")
 message(STATUS "Utils target:         ${VIX_UTILS_TARGET}")
 message(STATUS "JSON policy:          ${VIX_WEBSOCKET_WITH_JSON}")
 message(STATUS "Include dir:          ${CMAKE_CURRENT_SOURCE_DIR}/include")
-message(STATUS "Sanitizers enabled:   ${VIX_ENABLE_SANITIZERS}")
 message(STATUS "Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "Fetch core enabled:   ${VIX_WEBSOCKET_FETCH_CORE}")
 message(STATUS "Fetch utils enabled:  ${VIX_WEBSOCKET_FETCH_UTILS}")

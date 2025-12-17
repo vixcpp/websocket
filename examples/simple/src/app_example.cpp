@@ -26,7 +26,7 @@ int main()
 {
     App app{"config/config.json"};
 
-    app.ws("/chat", handle_chat);
+    (void)app.ws("/chat", handle_chat);
 
     app.run_blocking();
     return 0;
