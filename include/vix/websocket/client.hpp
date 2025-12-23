@@ -55,7 +55,7 @@
 
 #include <nlohmann/json.hpp>
 #include <vix/json/Simple.hpp>
-#include <vix/websocket/protocol.hpp> // vix::websocket::detail::ws_kvs_to_nlohmann
+#include <vix/websocket/protocol.hpp>
 
 namespace vix::websocket
 {
@@ -80,14 +80,10 @@ namespace vix::websocket
                 new Client(std::move(host), std::move(port), std::move(target)));
         }
 
-        // ───────────── Handlers / callbacks ─────────────
-
         void on_open(OpenHandler cb) { onOpen_ = std::move(cb); }
         void on_message(MessageHandler cb) { onMessage_ = std::move(cb); }
         void on_close(CloseHandler cb) { onClose_ = std::move(cb); }
         void on_error(ErrorHandler cb) { onError_ = std::move(cb); }
-
-        // ───────────── Advanced configuration ─────────────
 
         /// Enable / disable automatic reconnection.
         void enable_auto_reconnect(bool enable,
@@ -108,8 +104,6 @@ namespace vix::websocket
             heartbeatInterval_ = interval;
             heartbeatEnabled_ = true;
         }
-
-        // ───────────── Connection / I/O loop ─────────────
 
         /// Start resolve, connect, handshake and I/O thread.
         void connect()
@@ -319,10 +313,6 @@ namespace vix::websocket
             }
         }
 
-        /// ------------------------------------------------------------------
-        /// Sugar API — typed messages using `send("type", {...})`
-        /// ------------------------------------------------------------------
-
         /**
          * @brief Send a typed JSON message `{ "type", "payload" }` using kvs.
          *
@@ -364,8 +354,6 @@ namespace vix::websocket
         {
         }
 
-        // ───────────── Asio / Beast initialization ─────────────
-
         void init_io()
         {
             // On reconnect, ensure previous context is fully stopped
@@ -386,8 +374,6 @@ namespace vix::websocket
             closing_.store(false, std::memory_order_relaxed);
             heartbeatStop_.store(false, std::memory_order_relaxed);
         }
-
-        // ───────────── Pipeline: resolve → connect → handshake → read ─────────────
 
         void do_resolve()
         {
@@ -491,8 +477,6 @@ namespace vix::websocket
                 });
         }
 
-        // ───────────── Heartbeat (periodic ping) ─────────────
-
         void start_heartbeat()
         {
             if (heartbeatThread_.joinable())
@@ -514,8 +498,6 @@ namespace vix::websocket
                     self->send_ping();
                 } });
         }
-
-        // ───────────── Automatic reconnection ─────────────
 
         void maybe_schedule_reconnect(const boost::system::error_code &ec)
         {
@@ -551,8 +533,6 @@ namespace vix::websocket
                 .detach();
         }
 
-        // ───────────── Error reporting ─────────────
-
         void emit_error(const boost::system::error_code &ec,
                         const char *stage)
         {
@@ -568,41 +548,29 @@ namespace vix::websocket
         }
 
     private:
-        // Connection config
         std::string host_;
         std::string port_;
         std::string target_;
-
-        // Asio / Beast
         std::unique_ptr<net::io_context> ioc_;
         std::unique_ptr<tcp::resolver> resolver_;
         std::unique_ptr<websocket::stream<tcp::socket>> ws_;
         beast::flat_buffer buffer_;
-
         std::thread ioThread_;
         std::thread heartbeatThread_;
-
         std::atomic<bool> started_{false};
         std::atomic<bool> connected_{false};
         std::atomic<bool> closing_{false};
         std::atomic<bool> alive_{true};
-
-        // Heartbeat
         std::atomic<bool> heartbeatEnabled_{false};
         std::atomic<bool> heartbeatStop_{false};
         std::chrono::seconds heartbeatInterval_{30};
-
-        // Reconnection
         std::atomic<bool> autoReconnect_{false};
         std::chrono::seconds reconnectDelay_{3};
         std::atomic<bool> reconnectScheduled_{false};
-
-        // Callbacks
         OpenHandler onOpen_;
         MessageHandler onMessage_;
         CloseHandler onClose_;
         ErrorHandler onError_;
-
         std::mutex writeMutex_;
         std::deque<std::string> writeQueue_;
         bool writeInProgress_{false};

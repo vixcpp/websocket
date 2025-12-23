@@ -26,19 +26,14 @@ namespace vix::websocket
     {
         /// Maximum accepted payload size in bytes (soft limit).
         std::size_t maxMessageSize = 64 * 1024; // 64 KiB
-
         /// Idle timeout after which an inactive connection is closed.
         std::chrono::seconds idleTimeout{60};
-
         /// Enable permessage-deflate compression if client supports it.
         bool enablePerMessageDeflate = true;
-
         /// Allow automatic ping/pong management by Beast.
         bool autoPingPong = true;
-
         /// Interval between server-initiated pings (0 = disabled).
         std::chrono::seconds pingInterval{30};
-
         /**
          * @brief Build a Config from the core Vix config.
          *

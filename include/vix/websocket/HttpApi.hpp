@@ -50,7 +50,6 @@ namespace vix::websocket::http
         auto bridge = wsServer.long_polling_bridge();
         if (!bridge)
         {
-            // Long-polling not enabled
             nlohmann::json err{
                 {"error", "long-polling bridge not attached"},
             };
@@ -76,13 +75,11 @@ namespace vix::websocket::http
             }
             catch (...)
             {
-                // ignore, keep default
             }
         }
 
         // Drain messages from long-poll buffer
         auto messages = bridge->poll(sessionId, maxMessages, /*createIfMissing=*/true);
-
         // Serialize as JSON array
         auto j = json_messages_to_nlohmann_array(messages);
 
@@ -161,18 +158,16 @@ namespace vix::websocket::http
         JsonMessage msg;
         msg.type = type;
         msg.room = body.value("room", std::string{});
-        msg.kind = body.value("kind", std::string{}); // optional
-        msg.id = body.value("id", std::string{});     // optional
-        msg.ts = body.value("ts", std::string{});     // optional
+        msg.kind = body.value("kind", std::string{});
+        msg.id = body.value("id", std::string{});
+        msg.ts = body.value("ts", std::string{});
 
         if (body.contains("payload"))
         {
             msg.payload = detail::nlohmann_payload_to_kvs(body["payload"]);
         }
 
-        // Decide which long-poll session this message goes to.
         std::string sessionId = body.value("session_id", std::string{});
-
         if (sessionId.empty())
         {
             if (!msg.room.empty())
