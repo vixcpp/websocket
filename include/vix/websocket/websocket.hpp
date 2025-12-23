@@ -71,6 +71,7 @@ namespace vix::websocket
         std::vector<std::thread> ioThreads_;
 
         std::atomic<bool> stopRequested_{false};
+        std::atomic<bool> logged_listen_{false};
     };
 
 } // namespace vix::websocket

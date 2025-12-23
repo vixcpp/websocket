@@ -35,7 +35,7 @@ namespace vix::websocket
             (void)thread_index;
 #endif
         }
-    }
+    } // namespace
 
     LowLevelServer::LowLevelServer(vix::config::Config &coreConfig,
                                    std::shared_ptr<vix::executor::IExecutor> executor,
@@ -49,18 +49,18 @@ namespace vix::websocket
           ioThreads_(),
           stopRequested_(false)
     {
-        int port = coreConfig_.getInt("websocket.port", 9090);
+        const int port = coreConfig_.getInt("websocket.port", 9090);
         if (port < 1024 || port > 65535)
         {
             logger.log(Logger::Level::ERROR,
-                       "[WebSocket][Server] Port {} out of range (1024-65535)", port);
+                       "[ws] port out of range (1024-65535): {}", port);
             throw std::invalid_argument("Invalid WebSocket port");
         }
 
         init_acceptor(static_cast<unsigned short>(port));
 
-        logger.log(Logger::Level::INFO,
-                   "[WebSocket][Server] Config -> maxMessageSize={} idleTimeout={}s pingInterval={}s",
+        logger.log(Logger::Level::DEBUG,
+                   "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
                    wsConfig_.maxMessageSize,
                    wsConfig_.idleTimeout.count(),
                    wsConfig_.pingInterval.count());
@@ -74,6 +74,7 @@ namespace vix::websocket
         boost::system::error_code ec;
 
         tcp::endpoint endpoint(tcp::v4(), port);
+
         acceptor_->open(endpoint.protocol(), ec);
         if (ec)
             throw std::system_error(ec, "open acceptor");
@@ -84,18 +85,32 @@ namespace vix::websocket
 
         acceptor_->bind(endpoint, ec);
         if (ec)
+        {
+            if (ec == boost::system::errc::address_in_use)
+            {
+                throw std::system_error(
+                    ec,
+                    "bind acceptor: address already in use. Another process is listening on this port.");
+            }
             throw std::system_error(ec, "bind acceptor");
+        }
 
         acceptor_->listen(boost::asio::socket_base::max_connections, ec);
         if (ec)
             throw std::system_error(ec, "listen acceptor");
 
-        logger.log(Logger::Level::INFO,
-                   "[WebSocket][Server] Listening on port {}", port);
+        if (!logged_listen_.exchange(true, std::memory_order_relaxed))
+        {
+            logger.log(Logger::Level::INFO,
+                       "[ws] listening 0.0.0.0:{}  (local ws://localhost:{})",
+                       port, port);
+        }
     }
 
     void LowLevelServer::run()
     {
+        logger.log(Logger::Level::INFO, "[ws] ready");
+
         start_accept();
         start_io_threads();
     }
@@ -110,8 +125,11 @@ namespace vix::websocket
             {
                 if (!ec && !stopRequested_)
                 {
-                    // transfer tcp::socket by value to Session
                     handle_client(std::move(*socket));
+                }
+                else if (ec && !stopRequested_)
+                {
+                    logger.log(Logger::Level::DEBUG, "[ws] accept error ({})", ec.message());
                 }
 
                 if (!stopRequested_)
@@ -124,7 +142,7 @@ namespace vix::websocket
     void LowLevelServer::handle_client(tcp::socket socket)
     {
         auto session = std::make_shared<Session>(
-            std::move(socket), // move into ws::stream
+            std::move(socket),
             wsConfig_,
             router_,
             executor_);
@@ -146,21 +164,23 @@ namespace vix::websocket
 
         for (std::size_t i = 0; i < n; ++i)
         {
-            ioThreads_.emplace_back([this, i]()
-                                    {
-        try
-        {
-            set_affinity(i);
-            ioContext_->run();
-        }
-        catch (const std::exception &e)
-        {
-            logger.log(Logger::Level::ERROR,
-                       "[WebSocket][Server] IO thread {} error: {}", i, e.what());
-        }
+            ioThreads_.emplace_back(
+                [this, i]()
+                {
+                    try
+                    {
+                        set_affinity(i);
+                        ioContext_->run();
+                    }
+                    catch (const std::exception &e)
+                    {
+                        logger.log(Logger::Level::ERROR,
+                                   "[ws] io thread {} error ({})", i, e.what());
+                    }
 
-        logger.log(Logger::Level::INFO,
-                   "[WebSocket][Server] IO thread {} finished", i); });
+                    logger.log(Logger::Level::DEBUG,
+                               "[ws] io thread {} finished", i);
+                });
         }
     }
 

@@ -5,8 +5,8 @@
  * @brief Internal helpers for WebSocket fallback long-polling.
  */
 
-#include <vix/websocket/protocol.hpp> // JsonMessage
-#include <vix/websocket/Metrics.hpp>  // WebSocketMetrics
+#include <vix/websocket/protocol.hpp>
+#include <vix/websocket/Metrics.hpp>
 
 #include <chrono>
 #include <deque>
@@ -48,7 +48,7 @@ namespace vix::websocket
             buffer.push_back(msg);
             if (buffer.size() > maxBufferSize)
             {
-                buffer.pop_front(); // drop oldest
+                buffer.pop_front();
             }
             touch();
         }
@@ -87,18 +87,11 @@ namespace vix::websocket
 
         LongPollingManager(const LongPollingManager &) = delete;
         LongPollingManager &operator=(const LongPollingManager &) = delete;
-
         LongPollingManager(LongPollingManager &&other) noexcept;
         LongPollingManager &operator=(LongPollingManager &&other) noexcept;
-
         void push_to(const SessionId &sessionId, const JsonMessage &message);
-
-        std::vector<JsonMessage> poll(const SessionId &sessionId,
-                                      std::size_t maxMessages = 50,
-                                      bool createIfMissing = true);
-
+        std::vector<JsonMessage> poll(const SessionId &sessionId, std::size_t maxMessages = 50, bool createIfMissing = true);
         void sweep_expired();
-
         std::size_t session_count() const;
         std::size_t buffer_size(const SessionId &sessionId) const;
 
@@ -108,11 +101,9 @@ namespace vix::websocket
     private:
         std::chrono::seconds sessionTtl_;
         std::size_t maxBufferPerSession_;
-
         mutable std::mutex mutex_;
         std::unordered_map<SessionId, LongPollingSession> sessions_;
-
-        WebSocketMetrics *metrics_; // non-owning, peut être null
+        WebSocketMetrics *metrics_;
     };
 
 } // namespace vix::websocket

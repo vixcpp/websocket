@@ -1,17 +1,6 @@
 #ifndef VIX_WEBSOCKET_SERVER_HPP
 #define VIX_WEBSOCKET_SERVER_HPP
 
-/**
- * @file server.hpp
- * @brief High-level WebSocket server with event-driven API and JSON helpers.
- *
- * This component:
- *   - exposes an event-driven interface (open, close, error, message)
- *   - manages routing, session tracking and I/O threads lifecycle
- *   - provides helpers for a { type, payload } JSON message convention
- *     using vix::json::kvs as public representation
- */
-
 #include <memory>
 #include <chrono>
 #include <thread>
@@ -29,10 +18,10 @@
 #include <vix/config/Config.hpp>
 #include <vix/executor/IExecutor.hpp>
 
-#include <vix/websocket/websocket.hpp> // LowLevelServer
-#include <vix/websocket/router.hpp>    // Router
-#include <vix/websocket/session.hpp>   // Session
-#include <vix/websocket/protocol.hpp>  // JsonMessage
+#include <vix/websocket/websocket.hpp>
+#include <vix/websocket/router.hpp>
+#include <vix/websocket/session.hpp>
+#include <vix/websocket/protocol.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
 
 namespace vix::websocket
@@ -64,7 +53,6 @@ namespace vix::websocket
               userOnMessage_(),
               userOnTypedMessage_()
         {
-            // Connect router to internal handlers
             router_->on_open(
                 [this](Session &s)
                 {
@@ -78,7 +66,6 @@ namespace vix::websocket
                 {
                     auto sp = s.shared_from_this();
                     unregister_session(sp);
-                    // Also remove this session from all rooms
                     remove_session_from_all_rooms(sp);
                     if (userOnClose_)
                         userOnClose_(s);
@@ -130,8 +117,6 @@ namespace vix::websocket
         {
         }
 
-        // ───────────── Event-driven API ─────────────
-
         void on_open(OpenHandler fn) { userOnOpen_ = std::move(fn); }
         void on_close(CloseHandler fn) { userOnClose_ = std::move(fn); }
         void on_error(ErrorHandler fn) { userOnError_ = std::move(fn); }
@@ -143,43 +128,31 @@ namespace vix::websocket
             userOnTypedMessage_ = std::move(fn);
         }
 
-        // ───────────── Start / stop lifecycle ─────────────
-
-        /// Starts I/O threads (non-blocking).
         void start()
         {
+            vix::utils::Logger::getInstance().log(vix::utils::Logger::Level::INFO,
+                                                  "[ws] start() called on port {}", port());
             engine_.run();
         }
 
-        /// Cooperative stop + join of worker threads.
         void stop()
         {
             engine_.stop_async();
             engine_.join_threads();
         }
 
-        /// Convenience API: start and block the calling thread until stop is requested.
         void listen_blocking()
         {
             start();
-
             while (!engine_.is_stop_requested())
-            {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-
-            stop();
         }
 
-        /// Returns the effective WebSocket port (from configuration).
         int port() const
         {
             return cfg_.getInt("websocket.port", 9090);
         }
 
-        // ───────────── Broadcast helpers (global) ─────────────
-
-        /// Broadcasts a text message to all active sessions.
         void broadcast_text(const std::string &text)
         {
             std::lock_guard<std::mutex> lock(sessionsMutex_);
@@ -211,12 +184,6 @@ namespace vix::websocket
             broadcast_text(JsonMessage::serialize(type, kv));
         }
 
-        // ───────────── Room management API ─────────────
-        //
-        // Rooms are simple named channels. A session can join multiple rooms.
-        // All operations are thread-safe.
-
-        /// Add a session to a room (idempotent).
         void join_room(Session &session, const RoomId &room)
         {
             auto sp = session.shared_from_this();
@@ -227,7 +194,6 @@ namespace vix::websocket
 
             auto &vec = rooms_[room];
 
-            // Avoid duplicates
             auto it = std::find_if(
                 vec.begin(), vec.end(),
                 [&sp](const std::weak_ptr<Session> &w)
@@ -242,7 +208,6 @@ namespace vix::websocket
             }
         }
 
-        /// Remove a session from a specific room.
         void leave_room(Session &session, const RoomId &room)
         {
             auto sp = session.shared_from_this();
@@ -269,7 +234,6 @@ namespace vix::websocket
             }
         }
 
-        /// Remove a session from all rooms where it is present.
         void leave_all_rooms(Session &session)
         {
             auto sp = session.shared_from_this();
@@ -277,7 +241,6 @@ namespace vix::websocket
             remove_session_from_all_rooms_locked(sp);
         }
 
-        /// Broadcast plain text to a specific room.
         void broadcast_room_text(const RoomId &room, const std::string &text)
         {
             std::lock_guard<std::mutex> lock(sessionsMutex_);
@@ -317,7 +280,6 @@ namespace vix::websocket
         }
 
         /// Attach a long-polling bridge to receive JsonMessage events.
-        ///
         /// Once attached, every parsed JsonMessage will be forwarded to the bridge.
         void attach_long_polling_bridge(std::shared_ptr<LongPollingBridge> bridge)
         {
@@ -427,17 +389,11 @@ namespace vix::websocket
         vix::config::Config &cfg_;
         std::shared_ptr<vix::executor::IExecutor> executor_;
         std::shared_ptr<Router> router_;
-        LowLevelServer engine_; // low-level engine from websocket.hpp
-
-        // Active sessions (non-owning)
+        LowLevelServer engine_;
         std::mutex sessionsMutex_;
         std::vector<std::weak_ptr<Session>> sessions_;
-
-        // Rooms: room id -> list of sessions (non-owning)
         std::unordered_map<RoomId, std::vector<std::weak_ptr<Session>>> rooms_;
         std::shared_ptr<LongPollingBridge> longPollingBridge_;
-
-        // User callbacks
         OpenHandler userOnOpen_{};
         CloseHandler userOnClose_;
         ErrorHandler userOnError_;

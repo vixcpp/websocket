@@ -28,16 +28,13 @@ namespace vix::websocket
     {
     public:
         virtual ~IMessageStore() = default;
-
         /// Append / upsert d'un message.
         virtual void append(const JsonMessage &msg) = 0;
-
         /// Liste les messages d'une room, "newest-first".
         virtual std::vector<JsonMessage> list_by_room(
             const std::string &room,
             std::size_t limit,
             const std::optional<std::string> &before_id = std::nullopt) = 0;
-
         /// Replay global à partir d'un id (strictement après).
         virtual std::vector<JsonMessage> replay_from(
             const std::string &start_id,

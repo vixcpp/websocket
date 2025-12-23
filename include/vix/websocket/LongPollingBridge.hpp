@@ -82,7 +82,6 @@ namespace vix::websocket
         ///   - map by type:  "type:" + msg.type
         ///   - map globally: "broadcast"
         using Resolver = std::function<SessionId(const JsonMessage &)>;
-
         /// Optional hook for HTTP → WebSocket propagation.
         ///
         /// Typical use:
@@ -118,7 +117,7 @@ namespace vix::websocket
             Resolver resolver = {},
             HttpToWsForward httpToWs = {})
             : managerOwned_(sessionTtl, maxBufferPerSession, metrics),
-              manager_(managerOwned_), // reference bound to owned manager
+              manager_(managerOwned_),
               resolver_(std::move(resolver)),
               httpToWs_(std::move(httpToWs))
         {
@@ -173,7 +172,6 @@ namespace vix::websocket
         /// Allow external code (metrics / admin) to inspect the manager.
         LongPollingManager &manager() noexcept { return manager_; }
         const LongPollingManager &manager() const noexcept { return manager_; }
-
         /// Access to session / buffer stats.
         std::size_t session_count() const { return manager_.session_count(); }
         std::size_t buffer_size(const SessionId &sid) const { return manager_.buffer_size(sid); }
@@ -196,10 +194,8 @@ namespace vix::websocket
         // In the "external manager" constructor, this is default-constructed
         // and effectively unused.
         LongPollingManager managerOwned_;
-
         // Reference to the effective manager (either external or managerOwned_).
         LongPollingManager &manager_;
-
         Resolver resolver_;
         HttpToWsForward httpToWs_;
     };
