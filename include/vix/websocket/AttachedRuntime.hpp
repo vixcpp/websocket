@@ -23,14 +23,15 @@ namespace vix::websocket
         {
             wsThread_ = std::thread([this]()
                                     {
-                ws_.start(); 
-                // Keep thread alive until stop() is called
-                while (!stopped_.load(std::memory_order_relaxed))
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-                } });
+    vix::utils::console_wait_banner();
 
-            // Ensure WS stops when HTTP app is shutting down
+    ws_.start();
+
+    while (!stopped_.load(std::memory_order_relaxed))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    } });
+
             app_.set_shutdown_callback([this]()
                                        { stop(); });
         }
@@ -51,7 +52,6 @@ namespace vix::websocket
             if (!stopped_.compare_exchange_strong(expected, true))
                 return;
 
-            // Stop WS (async stop + join inside)
             ws_.stop();
 
             if (wsThread_.joinable())

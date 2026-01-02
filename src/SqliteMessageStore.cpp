@@ -11,9 +11,7 @@
 
 namespace vix::websocket
 {
-    using namespace vix::websocket::detail; // ws_kvs_to_nlohmann / nlohmann_payload_to_kvs
-
-    // ───────────────────────── Helpers internes ─────────────────────────
+    using namespace vix::websocket::detail;
 
     static void sqlite_check(int rc, sqlite3 *db, const char *stage)
     {
@@ -27,8 +25,6 @@ namespace vix::websocket
         }
     }
 
-    // ───────────────────────── Ctor / Dtor ─────────────────────────
-
     SqliteMessageStore::SqliteMessageStore(const std::string &db_path)
     {
         int rc = sqlite3_open(db_path.c_str(), &db_);
@@ -39,7 +35,6 @@ namespace vix::websocket
             throw std::runtime_error(msg);
         }
 
-        // Activer WAL
         {
             char *errmsg = nullptr;
             rc = sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &errmsg);
@@ -93,11 +88,8 @@ namespace vix::websocket
         }
     }
 
-    // ───────────────────────── ID helper ─────────────────────────
-
     std::string SqliteMessageStore::generate_id()
     {
-        // ID basé sur le temps en microsecondes, zéro-paddé pour ordre lexicographique.
         using clock = std::chrono::system_clock;
         auto now = clock::now().time_since_epoch();
         auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
@@ -107,11 +99,8 @@ namespace vix::websocket
         return oss.str();
     }
 
-    // ───────────────────────── append() ─────────────────────────
-
     void SqliteMessageStore::append(const JsonMessage &msg)
     {
-        // On construit une copie avec id/ts/kind/room normalisés
         JsonMessage m = msg;
 
         if (m.id.empty())
@@ -121,7 +110,6 @@ namespace vix::websocket
 
         if (m.ts.empty())
         {
-            // ISO-8601 très simple en UTC : YYYY-MM-DDTHH:MM:SSZ
             using clock = std::chrono::system_clock;
             auto now = clock::now();
             auto tt = clock::to_time_t(now);
@@ -147,7 +135,6 @@ namespace vix::websocket
             m.kind = "event";
         }
 
-        // On sérialise uniquement payload en JSON texte pour la colonne payload_json
         nlohmann::json payloadJson = ws_kvs_to_nlohmann(m.payload);
         std::string payloadText = payloadJson.dump();
 
@@ -191,8 +178,6 @@ namespace vix::websocket
         sqlite3_finalize(stmt);
     }
 
-    // ───────────────────────── list_by_room() ─────────────────────────
-
     std::vector<JsonMessage> SqliteMessageStore::list_by_room(
         const std::string &room,
         std::size_t limit,
@@ -207,7 +192,6 @@ namespace vix::websocket
             "FROM messages "
             "WHERE room = ?1 ";
 
-        // newest-first, avec pagination optionnelle sur id
         std::string sql;
         if (before_id.has_value())
         {
@@ -276,7 +260,6 @@ namespace vix::websocket
                 }
                 catch (...)
                 {
-                    // payload invalide → payload vide
                     m.payload = vix::json::kvs{};
                 }
             }
@@ -290,10 +273,8 @@ namespace vix::websocket
         }
 
         sqlite3_finalize(stmt);
-        return out; // newest-first
+        return out;
     }
-
-    // ───────────────────────── replay_from() ─────────────────────────
 
     std::vector<JsonMessage> SqliteMessageStore::replay_from(
         const std::string &start_id,
@@ -365,7 +346,7 @@ namespace vix::websocket
         }
 
         sqlite3_finalize(stmt);
-        return out; // oldest-first
+        return out;
     }
 
 } // namespace vix::websocket

@@ -40,16 +40,9 @@ namespace vix::websocket
                        std::shared_ptr<Router> router);
 
         ~LowLevelServer();
-
-        /// Start accepting connections and running io_context_ in background threads.
         void run();
-
-        /// Cooperative async stop: close acceptor and stop io_context_.
         void stop_async();
-
-        /// Join all I/O threads.
         void join_threads();
-
         bool is_stop_requested() const { return stopRequested_.load(); }
 
     private:
@@ -57,7 +50,6 @@ namespace vix::websocket
         void start_accept();
         void start_io_threads();
         void handle_client(tcp::socket socket);
-
         std::size_t compute_io_thread_count() const;
 
     private:
