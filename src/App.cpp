@@ -15,7 +15,6 @@ namespace vix::websocket
           executor_(make_threadpool_executor(minThreads, maxThreads, defaultPrio)),
           server_(config_, executor_)
     {
-        // Install an initial dispatcher (possibly with no routes yet).
         install_dispatcher();
     }
 
@@ -23,28 +22,17 @@ namespace vix::websocket
     {
         routes_.push_back(Route{endpoint, std::move(handler)});
 
-        // Reinstall dispatcher so that new handlers are taken into account.
-        // Assumption: ws() is called during startup, before run_blocking().
         install_dispatcher();
         return *this;
     }
 
     void App::install_dispatcher()
     {
-        // NOTE:
-        //  - We capture `this` assuming the App object outlives the server.
-        //  - Typical usage: configure routes, then call run_blocking().
-        //  - If someone calls ws() after run_blocking() has started,
-        //    routing is updated for *future* messages (not retroactive).
-
         server_.on_typed_message(
             [this](Session &session,
                    const std::string &type,
                    const vix::json::kvs &payload)
             {
-                // Minimalistic version: invoke all registered handlers.
-                // The `endpoint` field is currently a logical label,
-                // ready for future path-based routing.
                 for (auto &route : routes_)
                 {
                     if (route.handler)
@@ -62,7 +50,6 @@ namespace vix::websocket
 
     void App::stop()
     {
-        // Delegate to underlying server (must expose a stop() API).
         server_.stop();
     }
 

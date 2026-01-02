@@ -4,6 +4,7 @@
 #include <system_error>
 #include <algorithm>
 #include <chrono>
+#include <mutex>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -16,6 +17,16 @@ namespace vix::websocket
 
     namespace
     {
+        void init_logger_from_env_once()
+        {
+            static std::once_flag once;
+            std::call_once(once, []()
+                           {
+                auto &log = vix::websocket::Logger::getInstance();
+                log.setLevelFromEnv("VIX_LOG_LEVEL");
+                log.setFormatFromEnv("VIX_LOG_FORMAT"); });
+        }
+
         void set_affinity(std::size_t thread_index)
         {
 #ifdef __linux__
@@ -98,18 +109,22 @@ namespace vix::websocket
         acceptor_->listen(boost::asio::socket_base::max_connections, ec);
         if (ec)
             throw std::system_error(ec, "listen acceptor");
-
-        if (!logged_listen_.exchange(true, std::memory_order_relaxed))
-        {
-            logger.log(Logger::Level::INFO,
-                       "[ws] listening 0.0.0.0:{}  (local ws://localhost:{})",
-                       port, port);
-        }
     }
 
     void LowLevelServer::run()
     {
-        logger.log(Logger::Level::INFO, "[ws] ready");
+        init_logger_from_env_once();
+
+        vix::utils::console_wait_banner();
+
+        const int port = coreConfig_.getInt("websocket.port", 9090);
+
+        logger.logf(Logger::Level::INFO, "ws_listening",
+                    "host", "0.0.0.0",
+                    "port", port,
+                    "local_url", std::string("ws://localhost:") + std::to_string(port));
+
+        logger.log(Logger::Level::INFO, "ws_ready");
 
         start_accept();
         start_io_threads();
@@ -123,20 +138,47 @@ namespace vix::websocket
             *socket,
             [this, socket](boost::system::error_code ec)
             {
-                if (!ec && !stopRequested_)
+                if (!ec && !stopRequested_.load(std::memory_order_relaxed))
                 {
                     handle_client(std::move(*socket));
                 }
-                else if (ec && !stopRequested_)
+                else if (ec && !stopRequested_.load(std::memory_order_relaxed))
                 {
                     logger.log(Logger::Level::DEBUG, "[ws] accept error ({})", ec.message());
                 }
 
-                if (!stopRequested_)
+                if (!stopRequested_.load(std::memory_order_relaxed))
                 {
                     start_accept();
                 }
             });
+    }
+
+    void LowLevelServer::start_io_threads()
+    {
+        const std::size_t n = compute_io_thread_count();
+        ioThreads_.reserve(n);
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            ioThreads_.emplace_back([this, i]()
+                                    {
+                vix::utils::console_wait_banner();
+
+                try
+                {
+                    set_affinity(i);
+                    ioContext_->run();
+                }
+                catch (const std::exception &e)
+                {
+                    logger.log(Logger::Level::ERROR,
+                               "[ws] io thread {} error ({})", i, e.what());
+                }
+
+                logger.log(Logger::Level::DEBUG,
+                           "[ws] io thread {} finished", i); });
+        }
     }
 
     void LowLevelServer::handle_client(tcp::socket socket)
@@ -155,33 +197,6 @@ namespace vix::websocket
         const unsigned int hc = std::thread::hardware_concurrency();
         const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
         return static_cast<std::size_t>(std::max(1u, v));
-    }
-
-    void LowLevelServer::start_io_threads()
-    {
-        const std::size_t n = static_cast<std::size_t>(compute_io_thread_count());
-        ioThreads_.reserve(n);
-
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            ioThreads_.emplace_back(
-                [this, i]()
-                {
-                    try
-                    {
-                        set_affinity(i);
-                        ioContext_->run();
-                    }
-                    catch (const std::exception &e)
-                    {
-                        logger.log(Logger::Level::ERROR,
-                                   "[ws] io thread {} error ({})", i, e.what());
-                    }
-
-                    logger.log(Logger::Level::DEBUG,
-                               "[ws] io thread {} finished", i);
-                });
-        }
     }
 
     void LowLevelServer::stop_async()
