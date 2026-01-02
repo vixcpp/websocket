@@ -114,18 +114,7 @@ namespace vix::websocket
     void LowLevelServer::run()
     {
         init_logger_from_env_once();
-
         vix::utils::console_wait_banner();
-
-        const int port = coreConfig_.getInt("websocket.port", 9090);
-
-        logger.logf(Logger::Level::INFO, "ws_listening",
-                    "host", "0.0.0.0",
-                    "port", port,
-                    "local_url", std::string("ws://localhost:") + std::to_string(port));
-
-        logger.log(Logger::Level::INFO, "ws_ready");
-
         start_accept();
         start_io_threads();
     }

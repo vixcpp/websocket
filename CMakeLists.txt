@@ -109,9 +109,6 @@ endfunction()
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
 
-  # Beast/WebSocket repose sur Boost.System pour les codes d'erreur
-  find_package(Boost 1.78 REQUIRED COMPONENTS system)
-
   # ➕ NEW: SQLite
   find_package(SQLite3 REQUIRED)
 
@@ -138,7 +135,6 @@ if (WEBSOCKET_SOURCES)
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
-      Boost::system
       SQLite::SQLite3
   )
 
