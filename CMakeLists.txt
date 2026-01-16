@@ -1,6 +1,13 @@
-# ====================================================================
-# Vix.cpp — WebSocket Module
-# ====================================================================
+#  @file CMakeLists.cpp
+#  @author Gaspard Kirira
+#
+#  Copyright 2025, Gaspard Kirira.  All rights reserved.
+#  https://github.com/vixcpp/vix
+#  Use of this source code is governed by a MIT license
+#  that can be found in the License file.
+#
+#  Vix.cpp
+# Modules - websocket
 # Purpose:
 #   Build configuration for the Vix WebSocket module:
 #   - Upgrades HTTP connections from vix::core to WebSocket
@@ -31,17 +38,15 @@ project(vix_websocket VERSION 1.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-# ------------------------ Global settings ----------------------------
+# Global settings
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# ------------------------ Sources discovery --------------------------
-# If any .cpp exists under src/, we switch to STATIC build mode.
+# Sources discovery
 file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# ------------------------ Core dependency ----------------------------
-# We need vix::core (which itself may bring vix::utils, Boost, OpenSSL, ...).
+# Core dependency
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
 
@@ -52,10 +57,9 @@ if (NOT TARGET vix::core)
   elseif (VIX_WEBSOCKET_FETCH_CORE)
     include(FetchContent)
     message(STATUS "[websocket] Fetching vix::core via FetchContent")
-    # ⚠️ Align this tag with your umbrella release
     FetchContent_Declare(vix_core
       GIT_REPOSITORY https://github.com/vixcpp/core.git
-      GIT_TAG        v1.5.2
+      GIT_TAG        dev
     )
     FetchContent_MakeAvailable(vix_core)
   else()
@@ -68,10 +72,7 @@ endif()
 set(VIX_CORE_TARGET vix::core)
 set(VIX_UTILS_TARGET vix::utils)
 
-# ------------------------ JSON linkage policy ------------------------
-# AUTO: link if a known JSON target exists, else define VIX_WEBSOCKET_NO_JSON
-# ON  : require JSON target (error if absent)
-# OFF : never link JSON, define VIX_WEBSOCKET_NO_JSON
+# JSON linkage policy
 set(VIX_WEBSOCKET_WITH_JSON "AUTO" CACHE STRING "Link JSON backend (AUTO|ON|OFF)")
 set_property(CACHE VIX_WEBSOCKET_WITH_JSON PROPERTY STRINGS AUTO ON OFF)
 
@@ -105,19 +106,16 @@ function(vix_websocket_try_link_json onto link_scope)
   endif()
 endfunction()
 
-# ============================== STATIC ===============================
+# STATIC
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
 
-  # ➕ NEW: SQLite
   find_package(SQLite3 REQUIRED)
-
   add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
   add_library(vix::websocket ALIAS vix_websocket)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
-  # Inherit umbrella warnings/sanitizers if present
   if (TARGET vix_warnings)
     target_link_libraries(vix_websocket PUBLIC vix_warnings)
   endif()
@@ -138,7 +136,6 @@ if (WEBSOCKET_SOURCES)
       SQLite::SQLite3
   )
 
-  # Optional JSON linkage
   vix_websocket_try_link_json(vix_websocket PUBLIC)
 
   set_target_properties(vix_websocket PROPERTIES
@@ -158,18 +155,15 @@ if (WEBSOCKET_SOURCES)
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
           FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
 
-# ============================ HEADER-ONLY ============================
+# HEADER-ONLY
 else()
   message(STATUS "[websocket] Building HEADER-ONLY library (no sources).")
 
   add_library(vix_websocket INTERFACE)
-  # Canonical target
   add_library(vix::websocket ALIAS vix_websocket)
-  # Short alias (ergonomic)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket INTERFACE cxx_std_20)
 
-  # Inherit umbrella warnings/sanitizers if present
   if (TARGET vix_warnings)
     target_link_libraries(vix_websocket INTERFACE vix_warnings)
   endif()
@@ -198,7 +192,7 @@ else()
           FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
 endif()
 
-# ------------------------ Examples (optional) ------------------------
+# Examples (optional)
 option(VIX_WEBSOCKET_BUILD_EXAMPLES
        "Build WebSocket examples (server + HTML chat demo)" ON)
 
@@ -206,7 +200,7 @@ if (VIX_WEBSOCKET_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
-# ----------------------------- Summary -------------------------------
+# Summary
 message(STATUS "------------------------------------------------------")
 message(STATUS "vix::websocket configured (${PROJECT_VERSION})")
 if (WEBSOCKET_SOURCES)

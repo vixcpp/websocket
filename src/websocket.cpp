@@ -1,3 +1,16 @@
+/**
+ *
+ *  @file websocket.cpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
 #include <vix/websocket/websocket.hpp>
 #include <vix/websocket/session.hpp>
 
@@ -13,201 +26,206 @@
 
 namespace vix::websocket
 {
-    static Logger &logger = Logger::getInstance();
+  using tcp = net::ip::tcp;
+  using Logger = vix::utils::Logger;
+  static Logger &logger = Logger::getInstance();
 
-    namespace
+  namespace
+  {
+    void init_logger_from_env_once()
     {
-        void init_logger_from_env_once()
-        {
-            static std::once_flag once;
-            std::call_once(once, []()
-                           {
+      static std::once_flag once;
+      std::call_once(once, []()
+                     {
                 auto &log = vix::websocket::Logger::getInstance();
                 log.setLevelFromEnv("VIX_LOG_LEVEL");
                 log.setFormatFromEnv("VIX_LOG_FORMAT"); });
-        }
+    }
 
-        void set_affinity(std::size_t thread_index)
-        {
+    void set_affinity(std::size_t thread_index)
+    {
 #ifdef __linux__
-            unsigned int hc = std::thread::hardware_concurrency();
-            if (hc == 0u)
-                hc = 1u;
+      unsigned int hc = std::thread::hardware_concurrency();
+      if (hc == 0u)
+        hc = 1u;
 
-            const unsigned int cpu =
-                static_cast<unsigned int>(thread_index % static_cast<std::size_t>(hc));
+      const unsigned int cpu =
+          static_cast<unsigned int>(thread_index % static_cast<std::size_t>(hc));
 
-            cpu_set_t cpuset;
-            CPU_ZERO(&cpuset);
-            CPU_SET(cpu, &cpuset);
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(cpu, &cpuset);
 
-            (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+      (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 #else
-            (void)thread_index;
+      (void)thread_index;
 #endif
-        }
-    } // namespace
+    }
+  } // namespace
 
-    LowLevelServer::LowLevelServer(vix::config::Config &coreConfig,
-                                   std::shared_ptr<vix::executor::IExecutor> executor,
-                                   std::shared_ptr<Router> router)
-        : coreConfig_(coreConfig),
-          wsConfig_(Config::from_core(coreConfig_)),
-          executor_(std::move(executor)),
-          router_(std::move(router)),
-          ioContext_(std::make_shared<net::io_context>()),
-          acceptor_(nullptr),
-          ioThreads_(),
-          stopRequested_(false)
+  LowLevelServer::LowLevelServer(
+      vix::config::Config &coreConfig,
+      std::shared_ptr<vix::executor::IExecutor> executor,
+      std::shared_ptr<Router> router)
+      : coreConfig_(coreConfig),
+        wsConfig_(Config::from_core(coreConfig_)),
+        executor_(std::move(executor)),
+        router_(std::move(router)),
+        ioContext_(std::make_shared<net::io_context>()),
+        acceptor_(nullptr),
+        ioThreads_(),
+        stopRequested_(false)
+  {
+    const int port = coreConfig_.getInt("websocket.port", 9090);
+    if (port < 1024 || port > 65535)
     {
-        const int port = coreConfig_.getInt("websocket.port", 9090);
-        if (port < 1024 || port > 65535)
-        {
-            logger.log(Logger::Level::ERROR,
-                       "[ws] port out of range (1024-65535): {}", port);
-            throw std::invalid_argument("Invalid WebSocket port");
-        }
-
-        init_acceptor(static_cast<unsigned short>(port));
-
-        logger.log(Logger::Level::DEBUG,
-                   "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
-                   wsConfig_.maxMessageSize,
-                   wsConfig_.idleTimeout.count(),
-                   wsConfig_.pingInterval.count());
+      logger.log(Logger::Level::ERROR,
+                 "[ws] port out of range (1024-65535): {}", port);
+      throw std::invalid_argument("Invalid WebSocket port");
     }
 
-    LowLevelServer::~LowLevelServer() = default;
+    init_acceptor(static_cast<unsigned short>(port));
 
-    void LowLevelServer::init_acceptor(unsigned short port)
+    logger.log(
+        Logger::Level::DEBUG,
+        "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
+        wsConfig_.maxMessageSize,
+        wsConfig_.idleTimeout.count(),
+        wsConfig_.pingInterval.count());
+  }
+
+  LowLevelServer::~LowLevelServer() = default;
+
+  void LowLevelServer::init_acceptor(unsigned short port)
+  {
+    acceptor_ = std::make_unique<tcp::acceptor>(*ioContext_);
+    boost::system::error_code ec;
+
+    tcp::endpoint endpoint(tcp::v4(), port);
+
+    acceptor_->open(endpoint.protocol(), ec);
+    if (ec)
+      throw std::system_error(ec, "open acceptor");
+
+    acceptor_->set_option(boost::asio::socket_base::reuse_address(true), ec);
+    if (ec)
+      throw std::system_error(ec, "reuse_address");
+
+    acceptor_->bind(endpoint, ec);
+    if (ec)
     {
-        acceptor_ = std::make_unique<tcp::acceptor>(*ioContext_);
-        boost::system::error_code ec;
+      if (ec == boost::system::errc::address_in_use)
+      {
+        throw std::system_error(
+            ec,
+            "bind acceptor: address already in use. Another process is listening on this port.");
+      }
+      throw std::system_error(ec, "bind acceptor");
+    }
 
-        tcp::endpoint endpoint(tcp::v4(), port);
+    acceptor_->listen(boost::asio::socket_base::max_connections, ec);
+    if (ec)
+      throw std::system_error(ec, "listen acceptor");
+  }
 
-        acceptor_->open(endpoint.protocol(), ec);
-        if (ec)
-            throw std::system_error(ec, "open acceptor");
+  void LowLevelServer::run()
+  {
+    init_logger_from_env_once();
+    vix::utils::console_wait_banner();
+    start_accept();
+    start_io_threads();
+  }
 
-        acceptor_->set_option(boost::asio::socket_base::reuse_address(true), ec);
-        if (ec)
-            throw std::system_error(ec, "reuse_address");
+  void LowLevelServer::start_accept()
+  {
+    auto socket = std::make_shared<tcp::socket>(*ioContext_);
 
-        acceptor_->bind(endpoint, ec);
-        if (ec)
+    acceptor_->async_accept(
+        *socket,
+        [this, socket](boost::system::error_code ec)
         {
-            if (ec == boost::system::errc::address_in_use)
+          if (!ec && !stopRequested_.load(std::memory_order_relaxed))
+          {
+            handle_client(std::move(*socket));
+          }
+          else if (ec && !stopRequested_.load(std::memory_order_relaxed))
+          {
+            logger.log(Logger::Level::DEBUG, "[ws] accept error ({})", ec.message());
+          }
+
+          if (!stopRequested_.load(std::memory_order_relaxed))
+          {
+            start_accept();
+          }
+        });
+  }
+
+  void LowLevelServer::start_io_threads()
+  {
+    const std::size_t n = compute_io_thread_count();
+    ioThreads_.reserve(n);
+
+    for (std::size_t i = 0; i < n; ++i)
+    {
+      ioThreads_.emplace_back(
+          [this, i]()
+          {
+            vix::utils::console_wait_banner();
+
+            try
             {
-                throw std::system_error(
-                    ec,
-                    "bind acceptor: address already in use. Another process is listening on this port.");
+                set_affinity(i);
+                ioContext_->run();
             }
-            throw std::system_error(ec, "bind acceptor");
-        }
-
-        acceptor_->listen(boost::asio::socket_base::max_connections, ec);
-        if (ec)
-            throw std::system_error(ec, "listen acceptor");
-    }
-
-    void LowLevelServer::run()
-    {
-        init_logger_from_env_once();
-        vix::utils::console_wait_banner();
-        start_accept();
-        start_io_threads();
-    }
-
-    void LowLevelServer::start_accept()
-    {
-        auto socket = std::make_shared<tcp::socket>(*ioContext_);
-
-        acceptor_->async_accept(
-            *socket,
-            [this, socket](boost::system::error_code ec)
+            catch (const std::exception &e)
             {
-                if (!ec && !stopRequested_.load(std::memory_order_relaxed))
-                {
-                    handle_client(std::move(*socket));
-                }
-                else if (ec && !stopRequested_.load(std::memory_order_relaxed))
-                {
-                    logger.log(Logger::Level::DEBUG, "[ws] accept error ({})", ec.message());
-                }
+                logger.log(Logger::Level::ERROR,
+                            "[ws] io thread {} error ({})", i, e.what());
+            }
 
-                if (!stopRequested_.load(std::memory_order_relaxed))
-                {
-                    start_accept();
-                }
-            });
+            logger.log(Logger::Level::DEBUG,
+                        "[ws] io thread {} finished", i); });
     }
+  }
 
-    void LowLevelServer::start_io_threads()
+  void LowLevelServer::handle_client(tcp::socket socket)
+  {
+    auto session = std::make_shared<Session>(
+        std::move(socket),
+        wsConfig_,
+        router_,
+        executor_);
+
+    session->run();
+  }
+
+  std::size_t LowLevelServer::compute_io_thread_count() const
+  {
+    const unsigned int hc = std::thread::hardware_concurrency();
+    const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
+    return static_cast<std::size_t>(std::max(1u, v));
+  }
+
+  void LowLevelServer::stop_async()
+  {
+    stopRequested_.store(true);
+
+    if (acceptor_ && acceptor_->is_open())
     {
-        const std::size_t n = compute_io_thread_count();
-        ioThreads_.reserve(n);
-
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            ioThreads_.emplace_back([this, i]()
-                                    {
-                vix::utils::console_wait_banner();
-
-                try
-                {
-                    set_affinity(i);
-                    ioContext_->run();
-                }
-                catch (const std::exception &e)
-                {
-                    logger.log(Logger::Level::ERROR,
-                               "[ws] io thread {} error ({})", i, e.what());
-                }
-
-                logger.log(Logger::Level::DEBUG,
-                           "[ws] io thread {} finished", i); });
-        }
+      boost::system::error_code ec;
+      acceptor_->close(ec);
     }
 
-    void LowLevelServer::handle_client(tcp::socket socket)
+    ioContext_->stop();
+  }
+
+  void LowLevelServer::join_threads()
+  {
+    for (auto &t : ioThreads_)
     {
-        auto session = std::make_shared<Session>(
-            std::move(socket),
-            wsConfig_,
-            router_,
-            executor_);
-
-        session->run();
+      if (t.joinable())
+        t.join();
     }
-
-    std::size_t LowLevelServer::compute_io_thread_count() const
-    {
-        const unsigned int hc = std::thread::hardware_concurrency();
-        const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
-        return static_cast<std::size_t>(std::max(1u, v));
-    }
-
-    void LowLevelServer::stop_async()
-    {
-        stopRequested_.store(true);
-
-        if (acceptor_ && acceptor_->is_open())
-        {
-            boost::system::error_code ec;
-            acceptor_->close(ec);
-        }
-
-        ioContext_->stop();
-    }
-
-    void LowLevelServer::join_threads()
-    {
-        for (auto &t : ioThreads_)
-        {
-            if (t.joinable())
-                t.join();
-        }
-    }
+  }
 
 } // namespace vix::websocket

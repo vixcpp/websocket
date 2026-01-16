@@ -1,5 +1,22 @@
+/**
+ *
+ *  @file Metrics.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
 #ifndef VIX_WEBSOCKET_METRICS_HPP
 #define VIX_WEBSOCKET_METRICS_HPP
+
+#include <atomic>
+#include <cstdint>
+#include <string>
 
 /**
  * @file Metrics.hpp
@@ -40,56 +57,28 @@
  * @endcode
  */
 
-#include <atomic>
-#include <cstdint>
-#include <string>
-
 namespace vix::websocket
 {
-    /**
-     * @struct WebSocketMetrics
-     * @brief Aggregated counters for WebSocket + Long-Polling activity.
-     */
-    struct WebSocketMetrics
-    {
-        // ───── Core WebSocket metrics ─────
-        std::atomic<std::uint64_t> connections_total{0};
-        std::atomic<std::uint64_t> connections_active{0};
-        std::atomic<std::uint64_t> messages_in_total{0};
-        std::atomic<std::uint64_t> messages_out_total{0};
-        std::atomic<std::uint64_t> errors_total{0};
+  struct WebSocketMetrics
+  {
+    std::atomic<std::uint64_t> connections_total{0};
+    std::atomic<std::uint64_t> connections_active{0};
+    std::atomic<std::uint64_t> messages_in_total{0};
+    std::atomic<std::uint64_t> messages_out_total{0};
+    std::atomic<std::uint64_t> errors_total{0};
+    std::atomic<std::uint64_t> lp_sessions_total{0};
+    std::atomic<std::uint64_t> lp_sessions_active{0};
+    std::atomic<std::uint64_t> lp_polls_total{0};
+    std::atomic<std::uint64_t> lp_messages_buffered{0};
+    std::atomic<std::uint64_t> lp_messages_enqueued_total{0};
+    std::atomic<std::uint64_t> lp_messages_drained_total{0};
+    [[nodiscard]] std::string render_prometheus() const;
+  };
 
-        // ───── Long-polling fallback metrics ─────
-        // Total sessions ever created
-        std::atomic<std::uint64_t> lp_sessions_total{0};
-
-        // Sessions currently considered active (not encore expirées)
-        std::atomic<std::uint64_t> lp_sessions_active{0};
-
-        // Total HTTP /ws/poll calls
-        std::atomic<std::uint64_t> lp_polls_total{0};
-
-        // Nb de messages actuellement bufferisés dans LongPollingManager
-        std::atomic<std::uint64_t> lp_messages_buffered{0};
-
-        // Total de messages enqueued dans le buffer LP
-        std::atomic<std::uint64_t> lp_messages_enqueued_total{0};
-
-        // Total de messages drainés via /ws/poll
-        std::atomic<std::uint64_t> lp_messages_drained_total{0};
-
-        /**
-         * @brief Render all counters in Prometheus text format.
-         */
-        [[nodiscard]] std::string render_prometheus() const;
-    };
-
-    /**
-     * @brief Run a minimal HTTP server exposing `/metrics` for Prometheus.
-     */
-    void run_metrics_http_exporter(WebSocketMetrics &metrics,
-                                   const std::string &address = "0.0.0.0",
-                                   std::uint16_t port = 9100);
+  void run_metrics_http_exporter(
+      WebSocketMetrics &metrics,
+      const std::string &address = "0.0.0.0",
+      std::uint16_t port = 9100);
 
 } // namespace vix::websocket
 

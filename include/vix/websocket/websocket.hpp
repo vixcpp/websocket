@@ -1,15 +1,18 @@
+/**
+ *
+ *  @file websocket.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
 #ifndef VIX_WEBSOCKET_ENGINE_HPP
 #define VIX_WEBSOCKET_ENGINE_HPP
-
-/**
- * @file websocket.hpp
- * @brief Low-level WebSocket server engine.
- *
- * This component:
- *  - owns the io_context
- *  - accepts TCP connections
- *  - creates vix::websocket::Session instances for each client
- */
 
 #include <memory>
 #include <vector>
@@ -27,44 +30,43 @@
 
 namespace vix::websocket
 {
-    namespace net = boost::asio;
-    namespace beast = boost::beast;
-    using tcp = net::ip::tcp;
-    using Logger = vix::utils::Logger;
+  namespace net = boost::asio;
+  namespace beast = boost::beast;
 
-    class LowLevelServer
-    {
-    public:
-        LowLevelServer(vix::config::Config &coreConfig,
-                       std::shared_ptr<vix::executor::IExecutor> executor,
-                       std::shared_ptr<Router> router);
+  class LowLevelServer
+  {
+  public:
+    LowLevelServer(
+        vix::config::Config &coreConfig,
+        std::shared_ptr<vix::executor::IExecutor> executor,
+        std::shared_ptr<Router> router);
 
-        ~LowLevelServer();
-        void run();
-        void stop_async();
-        void join_threads();
-        bool is_stop_requested() const { return stopRequested_.load(); }
+    ~LowLevelServer();
+    void run();
+    void stop_async();
+    void join_threads();
+    bool is_stop_requested() const { return stopRequested_.load(); }
 
-    private:
-        void init_acceptor(unsigned short port);
-        void start_accept();
-        void start_io_threads();
-        void handle_client(tcp::socket socket);
-        std::size_t compute_io_thread_count() const;
+  private:
+    void init_acceptor(unsigned short port);
+    void start_accept();
+    void start_io_threads();
+    void handle_client(net::ip::tcp::socket socket);
+    std::size_t compute_io_thread_count() const;
 
-    private:
-        vix::config::Config &coreConfig_;
-        Config wsConfig_;
-        std::shared_ptr<vix::executor::IExecutor> executor_;
-        std::shared_ptr<Router> router_;
+  private:
+    vix::config::Config &coreConfig_;
+    Config wsConfig_;
+    std::shared_ptr<vix::executor::IExecutor> executor_;
+    std::shared_ptr<Router> router_;
 
-        std::shared_ptr<net::io_context> ioContext_;
-        std::unique_ptr<tcp::acceptor> acceptor_;
-        std::vector<std::thread> ioThreads_;
+    std::shared_ptr<net::io_context> ioContext_;
+    std::unique_ptr<net::ip::tcp::acceptor> acceptor_;
+    std::vector<std::thread> ioThreads_;
 
-        std::atomic<bool> stopRequested_{false};
-        std::atomic<bool> logged_listen_{false};
-    };
+    std::atomic<bool> stopRequested_{false};
+    std::atomic<bool> logged_listen_{false};
+  };
 
 } // namespace vix::websocket
 

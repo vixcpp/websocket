@@ -1,4 +1,19 @@
-#pragma once
+/**
+ *
+ *  @file Runtime.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
+
+#ifndef VIX_RUNTIME_HPP
+#define VIX_RUNTIME_HPP
 
 //
 // Vix.cpp — WebSocket module umbrella header
@@ -35,34 +50,21 @@
 //   - vix::websocket::LongPolling         → HTTP long-polling transport
 //   - vix::websocket::LongPollingBridge   → bridge between WS and long-polling
 //
-// This header is designed as a convenience entry point: it is safe to include
-// in user code that builds real-time systems (chat, dashboards, notifications,
-// multiplayer, collab tools, etc.).
-//
 
-// Core configuration & protocol
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/protocol.hpp>
-
-// Client / server / session / routing
 #include <vix/websocket/client.hpp>
 #include <vix/websocket/server.hpp>
 #include <vix/websocket/session.hpp>
 #include <vix/websocket/router.hpp>
-
-// Message storage & persistence
 #include <vix/websocket/MessageStore.hpp>
 #include <vix/websocket/SqliteMessageStore.hpp>
-
-// Metrics & high-level app wrapper
 #include <vix/websocket/Metrics.hpp>
 #include <vix/websocket/App.hpp>
 #include <vix/websocket/HttpApi.hpp>
-
-// Long-polling and fallback transports
 #include <vix/websocket/LongPolling.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
-
-// Runtime helpers (attached to vix::App lifecycle)
 #include <vix/websocket/AttachedRuntime.hpp>
 #include <vix/websocket/Runtime.hpp>
+
+#endif

@@ -1,3 +1,16 @@
+/**
+ *
+ *  @file router.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
 #ifndef VIX_WEBSOCKET_ROUTER_HPP
 #define VIX_WEBSOCKET_ROUTER_HPP
 
@@ -7,34 +20,34 @@
 
 namespace vix::websocket
 {
-    class Session;
+  class Session;
 
-    class Router
-    {
-    public:
-        using OpenHandler = std::function<void(Session &)>;
-        using CloseHandler = std::function<void(Session &)>;
-        using ErrorHandler = std::function<void(Session &, const boost::system::error_code &)>;
-        using MessageHandler = std::function<void(Session &, std::string)>;
+  class Router
+  {
+  public:
+    using OpenHandler = std::function<void(Session &)>;
+    using CloseHandler = std::function<void(Session &)>;
+    using ErrorHandler = std::function<void(Session &, const boost::system::error_code &)>;
+    using MessageHandler = std::function<void(Session &, std::string)>;
 
-        Router() = default;
+    Router() = default;
 
-        void on_open(OpenHandler cb) { openHandler_ = std::move(cb); }
-        void on_close(CloseHandler cb) { closeHandler_ = std::move(cb); }
-        void on_error(ErrorHandler cb) { errorHandler_ = std::move(cb); }
-        void on_message(MessageHandler cb) { messageHandler_ = std::move(cb); }
+    void on_open(OpenHandler cb) { openHandler_ = std::move(cb); }
+    void on_close(CloseHandler cb) { closeHandler_ = std::move(cb); }
+    void on_error(ErrorHandler cb) { errorHandler_ = std::move(cb); }
+    void on_message(MessageHandler cb) { messageHandler_ = std::move(cb); }
 
-        void handle_open(Session &session) const;
-        void handle_close(Session &session) const;
-        void handle_error(Session &session, const boost::system::error_code &ec) const;
-        void handle_message(Session &session, std::string payload) const;
+    void handle_open(Session &session) const;
+    void handle_close(Session &session) const;
+    void handle_error(Session &session, const boost::system::error_code &ec) const;
+    void handle_message(Session &session, std::string payload) const;
 
-    private:
-        OpenHandler openHandler_{};
-        CloseHandler closeHandler_{};
-        ErrorHandler errorHandler_{};
-        MessageHandler messageHandler_{};
-    };
+  private:
+    OpenHandler openHandler_{};
+    CloseHandler closeHandler_{};
+    ErrorHandler errorHandler_{};
+    MessageHandler messageHandler_{};
+  };
 
 } // namespace vix::websocket
 
