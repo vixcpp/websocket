@@ -1,4 +1,18 @@
-#pragma once
+/**
+ *
+ *  @file websocket.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
+#ifndef VIX_WEBSOCKET_HPP
+#define VIX_WEBSOCKET_HPP
 
 //
 // Vix.cpp — WebSocket module convenience header
@@ -26,3 +40,5 @@
 #include <vix/websocket/MessageStore.hpp>
 #include <vix/websocket/SqliteMessageStore.hpp>
 #include <vix/websocket/App.hpp>
+
+#endif

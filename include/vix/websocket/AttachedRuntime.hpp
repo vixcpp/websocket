@@ -1,4 +1,18 @@
-#pragma once
+/**
+ *
+ *  @file AttachedRuntime.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
+#ifndef VIX_ATTACHED_RUNTIME_HPP
+#define VIX_ATTACHED_RUNTIME_HPP
 
 #include <vix/app/App.hpp>
 #include <vix/websocket/server.hpp>
@@ -15,91 +29,93 @@
 
 namespace vix::websocket
 {
-    class AttachedRuntime
+  class AttachedRuntime
+  {
+  public:
+    AttachedRuntime(vix::App &app, vix::websocket::Server &ws)
+        : app_(app), ws_(ws), wsThread_(), stopped_(false)
     {
-    public:
-        AttachedRuntime(vix::App &app, vix::websocket::Server &ws)
-            : app_(app), ws_(ws), wsThread_(), stopped_(false)
-        {
-            wsThread_ = std::thread([this]()
-                                    {
-    vix::utils::console_wait_banner();
+      wsThread_ = std::thread(
+          [this]()
+          {
+      vix::utils::console_wait_banner();
+      ws_.start();
 
-    ws_.start();
+      while (!stopped_.load(std::memory_order_relaxed))
+      {
+          std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      } });
 
-    while (!stopped_.load(std::memory_order_relaxed))
+      app_.set_shutdown_callback(
+          [this]()
+          { stop(); });
+    }
+
+    ~AttachedRuntime()
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    } });
+      stop();
+    }
 
-            app_.set_shutdown_callback([this]()
-                                       { stop(); });
-        }
+    AttachedRuntime(const AttachedRuntime &) = delete;
+    AttachedRuntime &operator=(const AttachedRuntime &) = delete;
+    AttachedRuntime(AttachedRuntime &&) = delete;
+    AttachedRuntime &operator=(AttachedRuntime &&) = delete;
 
-        ~AttachedRuntime()
-        {
-            stop();
-        }
+    void stop() noexcept
+    {
+      bool expected = false;
+      if (!stopped_.compare_exchange_strong(expected, true))
+        return;
 
-        AttachedRuntime(const AttachedRuntime &) = delete;
-        AttachedRuntime &operator=(const AttachedRuntime &) = delete;
-        AttachedRuntime(AttachedRuntime &&) = delete;
-        AttachedRuntime &operator=(AttachedRuntime &&) = delete;
+      ws_.stop();
 
-        void stop() noexcept
-        {
-            bool expected = false;
-            if (!stopped_.compare_exchange_strong(expected, true))
-                return;
+      if (wsThread_.joinable())
+        wsThread_.join();
+    }
 
-            ws_.stop();
-
-            if (wsThread_.joinable())
-                wsThread_.join();
-        }
-
-    private:
-        vix::App &app_;
-        vix::websocket::Server &ws_;
-        std::thread wsThread_;
-        std::atomic<bool> stopped_;
-    };
+  private:
+    vix::App &app_;
+    vix::websocket::Server &ws_;
+    std::thread wsThread_;
+    std::atomic<bool> stopped_;
+  };
 
 } // namespace vix::websocket
 
 namespace vix
 {
-    struct HttpAndWsBundle
-    {
-        vix::App app;
-        vix::websocket::Server ws;
-    };
+  struct HttpAndWsBundle
+  {
+    vix::App app;
+    vix::websocket::Server ws;
+  };
 
-    inline HttpAndWsBundle make_http_and_ws(const std::filesystem::path &configPath)
-    {
-        auto &cfg = vix::config::Config::getInstance(configPath);
+  inline HttpAndWsBundle make_http_and_ws(const std::filesystem::path &configPath)
+  {
+    auto &cfg = vix::config::Config::getInstance(configPath);
 
-        auto exec_unique = vix::experimental::make_threadpool_executor(
-            4, // minThreads
-            8, // maxThreads
-            0  // default priority
-        );
+    auto exec_unique = vix::experimental::make_threadpool_executor(
+        4, // minThreads
+        8, // maxThreads
+        0  // default priority
+    );
 
-        std::shared_ptr<vix::executor::IExecutor> exec_shared{std::move(exec_unique)};
+    std::shared_ptr<vix::executor::IExecutor> exec_shared{std::move(exec_unique)};
 
-        return HttpAndWsBundle{
-            vix::App{exec_shared},
-            vix::websocket::Server{cfg, exec_shared}};
-    }
+    return HttpAndWsBundle{
+        vix::App{exec_shared},
+        vix::websocket::Server{cfg, exec_shared}};
+  }
 
-    inline void run_http_and_ws(vix::App &app,
-                                vix::websocket::Server &ws,
-                                int port = 8080)
-    {
-        vix::websocket::AttachedRuntime runtime{app, ws};
+  inline void run_http_and_ws(
+      vix::App &app,
+      vix::websocket::Server &ws,
+      int port = 8080)
+  {
+    vix::websocket::AttachedRuntime runtime{app, ws};
 
-        app.listen(port, [&](const vix::utils::ServerReadyInfo &base)
-                   {
+    app.listen(port, [&](const vix::utils::ServerReadyInfo &base)
+               {
         vix::utils::ServerReadyInfo info = base;
 
         info.show_ws = true;
@@ -110,31 +126,35 @@ namespace vix
 
         vix::utils::RuntimeBanner::emit_server_ready(info); });
 
-        app.wait();
-        app.close();
-    }
+    app.wait();
+    app.close();
+  }
 
-    template <typename ConfigureFn>
-    inline void serve_http_and_ws(const std::filesystem::path &configPath,
-                                  int port,
-                                  ConfigureFn &&fn)
-    {
-        auto bundle = make_http_and_ws(configPath);
+  template <typename ConfigureFn>
+  inline void serve_http_and_ws(
+      const std::filesystem::path &configPath,
+      int port,
+      ConfigureFn &&fn)
+  {
+    auto bundle = make_http_and_ws(configPath);
 
-        auto &app = bundle.app;
-        auto &ws = bundle.ws;
+    auto &app = bundle.app;
+    auto &ws = bundle.ws;
 
-        fn(app, ws);
+    fn(app, ws);
 
-        run_http_and_ws(app, ws, port);
-    }
+    run_http_and_ws(app, ws, port);
+  }
 
-    template <typename ConfigureFn>
-    inline void serve_http_and_ws(ConfigureFn &&fn)
-    {
-        serve_http_and_ws("config/config.json",
-                          8080,
-                          std::forward<ConfigureFn>(fn));
-    }
+  template <typename ConfigureFn>
+  inline void serve_http_and_ws(ConfigureFn &&fn)
+  {
+    serve_http_and_ws(
+        "config/config.json",
+        8080,
+        std::forward<ConfigureFn>(fn));
+  }
 
 } // namespace vix
+
+#endif

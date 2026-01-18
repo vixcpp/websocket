@@ -1,3 +1,16 @@
+/**
+ *
+ *  @file protocol.hpp
+ *  @author Gaspard Kirira
+ *
+ *  Copyright 2025, Gaspard Kirira.  All rights reserved.
+ *  https://github.com/vixcpp/vix
+ *  Use of this source code is governed by a MIT license
+ *  that can be found in the License file.
+ *
+ *  Vix.cpp
+ *
+ */
 #ifndef VIX_WEBSOCKET_PROTOCOL_HPP
 #define VIX_WEBSOCKET_PROTOCOL_HPP
 
@@ -34,391 +47,373 @@
 #include <optional>
 
 #include <nlohmann/json.hpp>
-#include <vix/json/Simple.hpp> // vix::json::token / kvs
+#include <vix/json/Simple.hpp>
 
 namespace vix::websocket
 {
-    namespace detail
+  namespace detail
+  {
+    inline nlohmann::json ws_token_to_nlohmann(const vix::json::token &t)
     {
-        inline nlohmann::json ws_token_to_nlohmann(const vix::json::token &t)
-        {
-            nlohmann::json j = nullptr;
-            std::visit(
-                [&](auto &&val)
-                {
-                    using T = std::decay_t<decltype(val)>;
-                    if constexpr (std::is_same_v<T, std::monostate>)
-                    {
-                        j = nullptr;
-                    }
-                    else if constexpr (std::is_same_v<T, bool> ||
-                                       std::is_same_v<T, long long> ||
-                                       std::is_same_v<T, double> ||
-                                       std::is_same_v<T, std::string>)
-                    {
-                        j = val;
-                    }
-                    else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::array_t>>)
-                    {
-                        if (!val)
-                        {
-                            j = nullptr;
-                            return;
-                        }
-                        j = nlohmann::json::array();
-                        for (const auto &el : val->elems)
-                        {
-                            j.push_back(ws_token_to_nlohmann(el));
-                        }
-                    }
-                    else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::kvs>>)
-                    {
-                        if (!val)
-                        {
-                            j = nullptr;
-                            return;
-                        }
-                        nlohmann::json obj = nlohmann::json::object();
-                        const auto &a = val->flat;
-                        const size_t n = a.size() - (a.size() % 2);
-                        for (size_t i = 0; i < n; i += 2)
-                        {
-                            const auto &k = a[i].v;
-                            const auto &vv = a[i + 1];
-                            if (!std::holds_alternative<std::string>(k))
-                                continue;
-                            const auto &key = std::get<std::string>(k);
-                            obj[key] = ws_token_to_nlohmann(vv);
-                        }
-                        j = std::move(obj);
-                    }
-                    else
-                    {
-                        j = nullptr;
-                    }
-                },
-                t.v);
-            return j;
-        }
-
-        inline nlohmann::json ws_kvs_to_nlohmann(const vix::json::kvs &list)
-        {
-            nlohmann::json obj = nlohmann::json::object();
-            const auto &a = list.flat;
-            const size_t n = a.size() - (a.size() % 2);
-
-            for (size_t i = 0; i < n; i += 2)
+      nlohmann::json j = nullptr;
+      std::visit(
+          [&](auto &&val)
+          {
+            using T = std::decay_t<decltype(val)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
             {
+              j = nullptr;
+            }
+            else if constexpr (std::is_same_v<T, bool> ||
+                               std::is_same_v<T, long long> ||
+                               std::is_same_v<T, double> ||
+                               std::is_same_v<T, std::string>)
+            {
+              j = val;
+            }
+            else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::array_t>>)
+            {
+              if (!val)
+              {
+                j = nullptr;
+                return;
+              }
+              j = nlohmann::json::array();
+              for (const auto &el : val->elems)
+              {
+                j.push_back(ws_token_to_nlohmann(el));
+              }
+            }
+            else if constexpr (std::is_same_v<T, std::shared_ptr<vix::json::kvs>>)
+            {
+              if (!val)
+              {
+                j = nullptr;
+                return;
+              }
+              nlohmann::json obj = nlohmann::json::object();
+              const auto &a = val->flat;
+              const size_t n = a.size() - (a.size() % 2);
+              for (size_t i = 0; i < n; i += 2)
+              {
                 const auto &k = a[i].v;
-                const auto &v = a[i + 1];
-
+                const auto &vv = a[i + 1];
                 if (!std::holds_alternative<std::string>(k))
-                    continue;
-                const std::string &key = std::get<std::string>(k);
-
-                obj[key] = ws_token_to_nlohmann(v);
+                  continue;
+                const auto &key = std::get<std::string>(k);
+                obj[key] = ws_token_to_nlohmann(vv);
+              }
+              j = std::move(obj);
             }
-            return obj;
-        }
-
-        inline vix::json::kvs nlohmann_payload_to_kvs(const nlohmann::json &payload)
-        {
-            vix::json::kvs kv;
-
-            if (!payload.is_object())
-                return kv;
-
-            for (auto it = payload.begin(); it != payload.end(); ++it)
+            else
             {
-                const std::string key = it.key();
-                const nlohmann::json &val = *it;
-
-                // key
-                kv.flat.emplace_back(vix::json::token{key});
-
-                // value
-                if (val.is_string())
-                {
-                    kv.flat.emplace_back(vix::json::token{val.get<std::string>()});
-                }
-                else if (val.is_boolean())
-                {
-                    kv.flat.emplace_back(vix::json::token{val.get<bool>()});
-                }
-                else if (val.is_number_integer())
-                {
-                    kv.flat.emplace_back(vix::json::token{val.get<long long>()});
-                }
-                else if (val.is_number_float())
-                {
-                    kv.flat.emplace_back(vix::json::token{val.get<double>()});
-                }
-                else if (val.is_null())
-                {
-                    kv.flat.emplace_back(vix::json::token{}); // monostate
-                }
-                else
-                {
-                    // Complex types (arrays / objects) → you can adapt later
-                    kv.flat.emplace_back(vix::json::token{}); // placeholder
-                }
+              j = nullptr;
             }
+          },
+          t.v);
+      return j;
+    }
 
-            return kv;
-        }
-
-    } // namespace detail
-
-    /// High-level protocol envelope for WebSocket text frames.
-    ///
-    /// This struct is designed to map almost 1:1 to a DB row:
-    ///
-    ///   id      → TEXT / INTEGER PRIMARY KEY
-    ///   kind    → TEXT (event / system / error / ...)
-    ///   ts      → TEXT (ISO-8601, UTC)
-    ///   room    → TEXT (nullable)
-    ///   type    → TEXT (business type, e.g. chat.message)
-    ///   payload → JSON text (from kvs)
-    ///
-    struct JsonMessage
+    inline nlohmann::json ws_kvs_to_nlohmann(const vix::json::kvs &list)
     {
-        std::string id{};
-        std::string kind{"event"};
-        std::string ts{};
-        std::string room{};
-        std::string type{};
-        vix::json::kvs payload{};
+      nlohmann::json obj = nlohmann::json::object();
+      const auto &a = list.flat;
+      const size_t n = a.size() - (a.size() % 2);
 
-        JsonMessage() = default;
+      for (size_t i = 0; i < n; i += 2)
+      {
+        const auto &k = a[i].v;
+        const auto &v = a[i + 1];
 
-        // ---- Client-friendly helpers on payload ------------------------------
+        if (!std::holds_alternative<std::string>(k))
+          continue;
+        const std::string &key = std::get<std::string>(k);
 
-        /// Get a string from payload["key"], or empty string if missing.
-        std::string get_string(const std::string &key) const
+        obj[key] = ws_token_to_nlohmann(v);
+      }
+      return obj;
+    }
+
+    inline vix::json::kvs nlohmann_payload_to_kvs(const nlohmann::json &payload)
+    {
+      vix::json::kvs kv;
+
+      if (!payload.is_object())
+        return kv;
+
+      for (auto it = payload.begin(); it != payload.end(); ++it)
+      {
+        const std::string key = it.key();
+        const nlohmann::json &val = *it;
+        kv.flat.emplace_back(vix::json::token{key});
+
+        if (val.is_string())
         {
-            const auto &a = payload.flat;
-            const size_t n = a.size() - (a.size() % 2);
+          kv.flat.emplace_back(vix::json::token{val.get<std::string>()});
+        }
+        else if (val.is_boolean())
+        {
+          kv.flat.emplace_back(vix::json::token{val.get<bool>()});
+        }
+        else if (val.is_number_integer())
+        {
+          kv.flat.emplace_back(vix::json::token{val.get<long long>()});
+        }
+        else if (val.is_number_float())
+        {
+          kv.flat.emplace_back(vix::json::token{val.get<double>()});
+        }
+        else if (val.is_null())
+        {
+          kv.flat.emplace_back(vix::json::token{});
+        }
+        else
+        {
+          kv.flat.emplace_back(vix::json::token{});
+        }
+      }
 
-            for (size_t i = 0; i < n; i += 2)
-            {
-                const auto &k = a[i].v;
-                const auto &v = a[i + 1].v;
+      return kv;
+    }
 
-                if (std::holds_alternative<std::string>(k) &&
-                    std::get<std::string>(k) == key)
-                {
-                    if (std::holds_alternative<std::string>(v))
-                        return std::get<std::string>(v);
-                    else
-                        return {};
-                }
-            }
+  } // namespace detail
+
+  /// High-level protocol envelope for WebSocket text frames.
+  ///
+  /// This struct is designed to map almost 1:1 to a DB row:
+  ///
+  ///   id      → TEXT / INTEGER PRIMARY KEY
+  ///   kind    → TEXT (event / system / error / ...)
+  ///   ts      → TEXT (ISO-8601, UTC)
+  ///   room    → TEXT (nullable)
+  ///   type    → TEXT (business type, e.g. chat.message)
+  ///   payload → JSON text (from kvs)
+  ///
+  struct JsonMessage
+  {
+    std::string id{};
+    std::string kind{"event"};
+    std::string ts{};
+    std::string room{};
+    std::string type{};
+    vix::json::kvs payload{};
+
+    JsonMessage() = default;
+
+    /// Get a string from payload["key"], or empty string if missing.
+    std::string get_string(const std::string &key) const
+    {
+      const auto &a = payload.flat;
+      const size_t n = a.size() - (a.size() % 2);
+
+      for (size_t i = 0; i < n; i += 2)
+      {
+        const auto &k = a[i].v;
+        const auto &v = a[i + 1].v;
+
+        if (std::holds_alternative<std::string>(k) &&
+            std::get<std::string>(k) == key)
+        {
+          if (std::holds_alternative<std::string>(v))
+            return std::get<std::string>(v);
+          else
             return {};
         }
-
-        /// Generic typed getter (optional) from payload.
-        template <typename T>
-        std::optional<T> get(const std::string &key) const
-        {
-            const auto &a = payload.flat;
-            const size_t n = a.size() - (a.size() % 2);
-
-            for (size_t i = 0; i < n; i += 2)
-            {
-                const auto &k = a[i].v;
-                const auto &v = a[i + 1].v;
-
-                if (std::holds_alternative<std::string>(k) &&
-                    std::get<std::string>(k) == key)
-                {
-                    if (std::holds_alternative<T>(v))
-                        return std::get<T>(v);
-
-                    return std::nullopt;
-                }
-            }
-            return std::nullopt;
-        }
-
-        // ---- Parse JSON envelope ---------------------------------------------
-
-        static std::optional<JsonMessage> parse(std::string_view s)
-        {
-            try
-            {
-                auto j = nlohmann::json::parse(s);
-                if (!j.is_object())
-                    return std::nullopt;
-
-                JsonMessage msg;
-
-                // Envelope fields (all optional sauf type)
-                msg.id = j.value("id", std::string{});
-                msg.kind = j.value("kind", std::string{}); // souvent "event" / "system"
-                msg.ts = j.value("ts", std::string{});
-                msg.room = j.value("room", std::string{});
-                msg.type = j.value("type", std::string{});
-
-                if (j.contains("payload"))
-                    msg.payload = detail::nlohmann_payload_to_kvs(j["payload"]);
-
-                // type vide = on ignore (message invalide)
-                if (msg.type.empty())
-                    return std::nullopt;
-
-                return msg;
-            }
-            catch (...)
-            {
-                return std::nullopt;
-            }
-        }
-
-        // ---- Serialize envelope ----------------------------------------------
-
-        /// Serialize a full JsonMessage (envelope + payload) to a JSON string.
-        static std::string serialize(const JsonMessage &m)
-        {
-            nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
-
-            nlohmann::json j = nlohmann::json::object();
-            if (!m.id.empty())
-                j["id"] = m.id;
-            if (!m.kind.empty())
-                j["kind"] = m.kind;
-            if (!m.ts.empty())
-                j["ts"] = m.ts;
-            if (!m.room.empty())
-                j["room"] = m.room;
-
-            j["type"] = m.type;
-            j["payload"] = payloadJson;
-
-            return j.dump();
-        }
-
-        /// Convenience: serialize type + payload seulement (métadonnées optionnelles).
-        ///
-        /// Exemple simple :
-        ///   JsonMessage::serialize("chat.message", payloadKvs);
-        ///
-        /// Exemple avancé avec room:
-        ///   JsonMessage::serialize("chat.message", payloadKvs, "africa");
-        ///
-        static std::string serialize(const std::string &type,
-                                     const vix::json::kvs &payloadKvs,
-                                     const std::string &room = {},
-                                     const std::string &id = {},
-                                     const std::string &kind = {},
-                                     const std::string &ts = {})
-        {
-            JsonMessage m;
-            m.type = type;
-            m.payload = payloadKvs;
-            m.room = room;
-            m.id = id;
-            m.kind = kind;
-            m.ts = ts;
-
-            return serialize(m);
-        }
-
-        /// Convert this JsonMessage into a nlohmann::json object.
-        ///
-        /// This mirrors the structure produced by serialize(), but returns
-        /// the JSON object instead of a string.
-        nlohmann::json to_nlohmann() const
-        {
-            // payload -> nlohmann::json
-            nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(payload);
-
-            nlohmann::json j = nlohmann::json::object();
-
-            if (!id.empty())
-                j["id"] = id;
-            if (!kind.empty())
-                j["kind"] = kind;
-            if (!ts.empty())
-                j["ts"] = ts;
-            if (!room.empty())
-                j["room"] = room;
-
-            j["type"] = type;
-            j["payload"] = payloadJson;
-
-            return j;
-        }
-    };
-
-    // -----------------------------------------------------------------------------
-    // JSON helpers for HTTP / long-polling
-    // -----------------------------------------------------------------------------
-
-    /// Convert a single JsonMessage to nlohmann::json.
-    ///
-    /// Shape:
-    /// {
-    ///   "id": "...",
-    ///   "kind": "...",
-    ///   "ts": "...",
-    ///   "room": "...",
-    ///   "type": "chat.message",
-    ///   "payload": { ... }
-    /// }
-    inline nlohmann::json json_message_to_nlohmann(const JsonMessage &m)
-    {
-        nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
-
-        nlohmann::json j = nlohmann::json::object();
-        if (!m.id.empty())
-            j["id"] = m.id;
-        if (!m.kind.empty())
-            j["kind"] = m.kind;
-        if (!m.ts.empty())
-            j["ts"] = m.ts;
-        if (!m.room.empty())
-            j["room"] = m.room;
-
-        j["type"] = m.type;
-        j["payload"] = std::move(payloadJson);
-
-        return j;
+      }
+      return {};
     }
 
-    /// Convert a vector<JsonMessage> to a JSON array.
-    ///
-    /// Typical use in /ws/poll:
-    ///   auto messages = bridge.poll(sessionId, max);
-    ///   auto arr = json_messages_to_nlohmann_array(messages);
-    ///   res.json(arr);
-    inline nlohmann::json json_messages_to_nlohmann_array(
-        const std::vector<JsonMessage> &messages)
+    template <typename T>
+    std::optional<T> get(const std::string &key) const
     {
-        nlohmann::json arr = nlohmann::json::array();
+      const auto &a = payload.flat;
+      const size_t n = a.size() - (a.size() % 2);
 
-        // Pré-allocation via le ref interne sur array_t (facultatif, mais propre)
-        if (!messages.empty())
+      for (size_t i = 0; i < n; i += 2)
+      {
+        const auto &k = a[i].v;
+        const auto &v = a[i + 1].v;
+
+        if (std::holds_alternative<std::string>(k) &&
+            std::get<std::string>(k) == key)
         {
-            auto &vec = arr.get_ref<nlohmann::json::array_t &>();
-            vec.reserve(messages.size());
-        }
+          if (std::holds_alternative<T>(v))
+            return std::get<T>(v);
 
-        for (const auto &msg : messages)
-        {
-            arr.push_back(msg.to_nlohmann());
+          return std::nullopt;
         }
-
-        return arr;
+      }
+      return std::nullopt;
     }
 
-    /// Serialize a vector<JsonMessage> as a compact JSON string.
-    ///
-    /// Equivalent to json_messages_to_nlohmann_array(...).dump().
-    inline std::string serialize_messages_array(
-        const std::vector<JsonMessage> &messages)
+    static std::optional<JsonMessage> parse(std::string_view s)
     {
-        return json_messages_to_nlohmann_array(messages).dump();
+      try
+      {
+        auto j = nlohmann::json::parse(s);
+        if (!j.is_object())
+          return std::nullopt;
+
+        JsonMessage msg;
+
+        msg.id = j.value("id", std::string{});
+        msg.kind = j.value("kind", std::string{});
+        msg.ts = j.value("ts", std::string{});
+        msg.room = j.value("room", std::string{});
+        msg.type = j.value("type", std::string{});
+
+        if (j.contains("payload"))
+          msg.payload = detail::nlohmann_payload_to_kvs(j["payload"]);
+
+        if (msg.type.empty())
+          return std::nullopt;
+
+        return msg;
+      }
+      catch (...)
+      {
+        return std::nullopt;
+      }
     }
+
+    static std::string serialize(const JsonMessage &m)
+    {
+      nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
+
+      nlohmann::json j = nlohmann::json::object();
+      if (!m.id.empty())
+        j["id"] = m.id;
+      if (!m.kind.empty())
+        j["kind"] = m.kind;
+      if (!m.ts.empty())
+        j["ts"] = m.ts;
+      if (!m.room.empty())
+        j["room"] = m.room;
+
+      j["type"] = m.type;
+      j["payload"] = payloadJson;
+
+      return j.dump();
+    }
+
+    /// Convenience: serialize type + payload seulement (métadonnées optionnelles).
+    ///
+    /// Exemple simple :
+    ///   JsonMessage::serialize("chat.message", payloadKvs);
+    ///
+    /// Exemple avancé avec room:
+    ///   JsonMessage::serialize("chat.message", payloadKvs, "africa");
+    ///
+    static std::string serialize(
+        const std::string &type,
+        const vix::json::kvs &payloadKvs,
+        const std::string &room = {},
+        const std::string &id = {},
+        const std::string &kind = {},
+        const std::string &ts = {})
+    {
+      JsonMessage m;
+      m.type = type;
+      m.payload = payloadKvs;
+      m.room = room;
+      m.id = id;
+      m.kind = kind;
+      m.ts = ts;
+
+      return serialize(m);
+    }
+
+    /// Convert this JsonMessage into a nlohmann::json object.
+    ///
+    /// This mirrors the structure produced by serialize(), but returns
+    /// the JSON object instead of a string.
+    nlohmann::json to_nlohmann() const
+    {
+      // payload -> nlohmann::json
+      nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(payload);
+
+      nlohmann::json j = nlohmann::json::object();
+
+      if (!id.empty())
+        j["id"] = id;
+      if (!kind.empty())
+        j["kind"] = kind;
+      if (!ts.empty())
+        j["ts"] = ts;
+      if (!room.empty())
+        j["room"] = room;
+
+      j["type"] = type;
+      j["payload"] = payloadJson;
+
+      return j;
+    }
+  };
+
+  /// Convert a single JsonMessage to nlohmann::json.
+  ///
+  /// Shape:
+  /// {
+  ///   "id": "...",
+  ///   "kind": "...",
+  ///   "ts": "...",
+  ///   "room": "...",
+  ///   "type": "chat.message",
+  ///   "payload": { ... }
+  /// }
+  inline nlohmann::json json_message_to_nlohmann(const JsonMessage &m)
+  {
+    nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
+
+    nlohmann::json j = nlohmann::json::object();
+    if (!m.id.empty())
+      j["id"] = m.id;
+    if (!m.kind.empty())
+      j["kind"] = m.kind;
+    if (!m.ts.empty())
+      j["ts"] = m.ts;
+    if (!m.room.empty())
+      j["room"] = m.room;
+
+    j["type"] = m.type;
+    j["payload"] = std::move(payloadJson);
+
+    return j;
+  }
+
+  /// Convert a vector<JsonMessage> to a JSON array.
+  ///
+  /// Typical use in /ws/poll:
+  ///   auto messages = bridge.poll(sessionId, max);
+  ///   auto arr = json_messages_to_nlohmann_array(messages);
+  ///   res.json(arr);
+  inline nlohmann::json json_messages_to_nlohmann_array(
+      const std::vector<JsonMessage> &messages)
+  {
+    nlohmann::json arr = nlohmann::json::array();
+
+    if (!messages.empty())
+    {
+      auto &vec = arr.get_ref<nlohmann::json::array_t &>();
+      vec.reserve(messages.size());
+    }
+
+    for (const auto &msg : messages)
+    {
+      arr.push_back(msg.to_nlohmann());
+    }
+
+    return arr;
+  }
+
+  /// Serialize a vector<JsonMessage> as a compact JSON string.
+  ///
+  /// Equivalent to json_messages_to_nlohmann_array(...).dump().
+  inline std::string serialize_messages_array(
+      const std::vector<JsonMessage> &messages)
+  {
+    return json_messages_to_nlohmann_array(messages).dump();
+  }
 
 } // namespace vix::websocket
 
