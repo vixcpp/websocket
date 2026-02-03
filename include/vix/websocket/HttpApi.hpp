@@ -30,6 +30,7 @@ namespace vix::websocket::http
 {
   namespace detail
   {
+    /** @brief Convert an hex character to its integer value (or -1). */
     inline int hex_val(char c)
     {
       if (c >= '0' && c <= '9')
@@ -41,6 +42,7 @@ namespace vix::websocket::http
       return -1;
     }
 
+    /** @brief Percent-decode a URL query component (+ and %xx). */
     inline std::string url_decode(std::string_view s)
     {
       std::string out;
@@ -74,6 +76,7 @@ namespace vix::websocket::http
       return out;
     }
 
+    /** @brief Extract a query param by parsing the raw target string. */
     inline std::optional<std::string> query_param_from_target(std::string_view target,
                                                               std::string_view key)
     {
@@ -104,22 +107,28 @@ namespace vix::websocket::http
       return std::nullopt;
     }
 
+    /**
+     * @brief Convert a request target to std::string.
+     *
+     * Works for:
+     *  - boost::beast::http::request: req.target() -> string_view
+     *  - vix::vhttp::Request: req.target() -> std::string
+     */
     template <typename Request>
     inline std::string request_target_string(const Request &req)
     {
-      // Works for:
-      // - boost::beast::http::request: req.target() -> string_view
-      // - vix::vhttp::Request: req.target() -> std::string
       return std::string(req.target().data(), req.target().size());
     }
 
+    /**
+     * @brief Get query parameter (supports vix::vhttp::Request or Beast-like target parsing).
+     */
     template <typename Request>
     inline std::optional<std::string> get_query_param(const Request &req, std::string_view key)
     {
 #if defined(__cpp_concepts) && __cpp_concepts >= 201907L
       if constexpr (requires(const Request &r) { r.query_value(key); })
       {
-        // vix::vhttp::Request style
         const std::string v = req.query_value(key);
         if (v.empty())
           return std::nullopt;
@@ -127,35 +136,37 @@ namespace vix::websocket::http
       }
       else
       {
-        // Beast raw style
         const std::string t = request_target_string(req);
         return query_param_from_target(std::string_view(t), key);
       }
 #else
-      // Fallback: always parse from target
       const std::string t = request_target_string(req);
       return query_param_from_target(std::string_view(t), key);
 #endif
     }
 
+    /** @brief Return true if the request has a given query param. */
     template <typename Request>
     inline bool has_query_param(const Request &req, std::string_view key)
     {
       return static_cast<bool>(get_query_param(req, key));
     }
 
+    /**
+     * @brief Parse JSON body (supports vix::vhttp::Request::json() when available).
+     *
+     * Returns an optional JSON; may be empty if body is empty or parsing fails.
+     */
     template <typename Request>
     inline std::optional<nlohmann::json> get_json_body(const Request &req)
     {
 #if defined(__cpp_concepts) && __cpp_concepts >= 201907L
       if constexpr (requires(const Request &r) { r.json(); })
       {
-        // vix::vhttp::Request
         return req.json();
       }
       else
       {
-        // Beast raw: parse from body()
         return nlohmann::json::parse(req.body(), nullptr, true, true);
       }
 #else
@@ -165,22 +176,13 @@ namespace vix::websocket::http
   } // namespace detail
 
   /**
-   * @brief Handle GET /ws/poll style endpoint.
+   * @brief Handle GET /ws/poll endpoint (long-polling).
    *
-   * Assumptions about Request / Response:
-   *  - Request:
-   *      std::optional<std::string> req.query(const std::string& name) const;
-   *  - Response:
-   *      Response& res.status(int code);
-   *      Response& res.json(const nlohmann::json& j);
+   * Reads query params:
+   *  - session_id (default "broadcast")
+   *  - max        (default 50)
    *
-   * Typical wiring in your core:
-   *
-   *   vix::websocket::Server wsServer(config, executor);
-   *
-   *   app.get("/ws/poll", [&wsServer](auto& req, auto& res) {
-   *       vix::websocket::http::handle_ws_poll(req, res, wsServer);
-   *   });
+   * Requires a LongPollingBridge attached on the Server.
    */
   template <typename Request, typename Response>
   void handle_ws_poll(Request &req, Response &res, Server &wsServer)
@@ -219,35 +221,18 @@ namespace vix::websocket::http
   }
 
   /**
-   * @brief Handle POST /ws/send style endpoint.
+   * @brief Handle POST /ws/send endpoint (HTTP -> long-polling and optional WS forward).
    *
-   * Expected JSON body shape:
-   *
+   * Body:
    * {
    *   "session_id": "optional-session-id",
    *   "room": "optional-room-name",
    *   "type": "chat.message",
-   *   "payload": {
-   *      "user": "alice",
-   *      "text": "hello"
-   *   }
+   *   "payload": { ... }
    * }
    *
-   * If session_id is missing but room is present, we will use "room:<room>".
-   * Otherwise, fallback to "broadcast".
-   *
-   * Assumptions:
-   *  - Request:
-   *      nlohmann::json req.json() const;
-   *  - Response:
-   *      Response& res.status(int code);
-   *      Response& res.json(const nlohmann::json& j);
-   *
-   * Typical wiring:
-   *
-   *   app.post("/ws/send", [&wsServer](auto& req, auto& res) {
-   *       vix::websocket::http::handle_ws_send(req, res, wsServer);
-   *   });
+   * If session_id is missing but room is present, uses "room:<room>".
+   * Otherwise uses "broadcast".
    */
   template <typename Request, typename Response>
   void handle_ws_send(Request &req, Response &res, Server &wsServer)

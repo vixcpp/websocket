@@ -25,71 +25,37 @@
 namespace vix::websocket
 {
   /**
-   * @brief Bridge from WebSocket events to long-polling sessions.
+   * @brief Bridge between WebSocket traffic and HTTP long-polling sessions.
    *
-   * Typical usage (external manager + metrics already wired) :
-   *
-   *   WebSocketMetrics metrics;
-   *
-   *   LongPollingManager lpManager{
-   *       std::chrono::seconds{60},
-   *       256,
-   *       &metrics
-   *   };
-   *
-   *   auto bridge = std::make_shared<LongPollingBridge>(
-   *       lpManager,
-   *       [](const JsonMessage &msg) {
-   *           if (!msg.room.empty())
-   *               return std::string{"room:"} + msg.room;
-   *           return std::string{"broadcast"};
-   *       },
-   *       [&wsServer](const JsonMessage &msg) {
-   *           if (!msg.room.empty())
-   *               wsServer.broadcast_room_json(msg.room, msg.type, msg.payload);
-   *           else
-   *               wsServer.broadcast_json(msg.type, msg.payload);
-   *       });
-   *
-   * Variante où le bridge possède son propre LongPollingManager :
-   *
-   *   WebSocketMetrics metrics;
-   *
-   *   auto bridge = std::make_shared<LongPollingBridge>(
-   *       &metrics,
-   *       std::chrono::seconds{60},
-   *       256,
-   *       [](const JsonMessage &msg) {
-   *           if (!msg.room.empty())
-   *               return std::string{"room:"} + msg.room;
-   *           return std::string{"broadcast"};
-   *       },
-   *       [&wsServer](const JsonMessage &msg) {
-   *           if (!msg.room.empty())
-   *               wsServer.broadcast_room_json(msg.room, msg.type, msg.payload);
-   *           else
-   *               wsServer.broadcast_json(msg.type, msg.payload);
-   *       });
+   * Receives typed WebSocket JsonMessage events and buffers them into a
+   * LongPollingManager. Also supports HTTP->WS forwarding when /ws/send is used.
    */
   class LongPollingBridge
   {
   public:
     using SessionId = std::string;
 
-    /// Resolver: decides which long-polling session should receive a WS message.
-    ///
-    /// For example:
-    ///   - map by room:  "room:" + msg.room
-    ///   - map by type:  "type:" + msg.type
-    ///   - map globally: "broadcast"
+    /**
+     * @brief Resolver that decides which long-polling session receives a message.
+     *
+     * Common strategies:
+     *   - by room: "room:" + msg.room
+     *   - global:  "broadcast"
+     *   - custom:  shard by user/type/tenant
+     */
     using Resolver = std::function<SessionId(const JsonMessage &)>;
-    /// Optional hook for HTTP → WebSocket propagation.
-    ///
-    /// Typical use:
-    ///   - when /ws/send receives an HTTP message that should also be
-    ///     forwarded to WebSocket clients (broadcast or room).
+
+    /**
+     * @brief Optional hook used to forward HTTP messages back to WS clients.
+     *
+     * Typical usage: /ws/send pushes into long-polling buffers then broadcasts
+     * to WS clients (global or room) using this callback.
+     */
     using HttpToWsForward = std::function<void(const JsonMessage &)>;
 
+    /**
+     * @brief Construct a bridge using an external LongPollingManager.
+     */
     LongPollingBridge(
         LongPollingManager &manager,
         Resolver resolver = {},
@@ -101,6 +67,13 @@ namespace vix::websocket
     {
     }
 
+    /**
+     * @brief Construct a bridge that owns its LongPollingManager.
+     *
+     * @param metrics Optional metrics collector (may be null).
+     * @param sessionTtl Session inactivity TTL.
+     * @param maxBufferPerSession Max buffered messages per session.
+     */
     LongPollingBridge(
         WebSocketMetrics *metrics,
         std::chrono::seconds sessionTtl = std::chrono::seconds{60},
@@ -119,12 +92,18 @@ namespace vix::websocket
     LongPollingBridge(LongPollingBridge &&) = delete;
     LongPollingBridge &operator=(LongPollingBridge &&) = delete;
 
+    /**
+     * @brief Handle a WS message: resolve session id and push into long-polling buffer.
+     */
     void on_ws_message(const JsonMessage &msg)
     {
       const SessionId sid = resolve_session_id(msg);
       manager_.push_to(sid, msg);
     }
 
+    /**
+     * @brief Poll buffered messages for a given session id.
+     */
     std::vector<JsonMessage> poll(
         const SessionId &sessionId,
         std::size_t maxMessages = 50,
@@ -133,6 +112,11 @@ namespace vix::websocket
       return manager_.poll(sessionId, maxMessages, createIfMissing);
     }
 
+    /**
+     * @brief Push a message originating from HTTP into long-polling and optionally WS.
+     *
+     * This is typically used by /ws/send.
+     */
     void send_from_http(
         const SessionId &sessionId,
         const JsonMessage &msg)
@@ -145,12 +129,19 @@ namespace vix::websocket
       }
     }
 
+    /** @brief Access the underlying manager. */
     LongPollingManager &manager() noexcept { return manager_; }
+    /** @brief Access the underlying manager (const). */
     const LongPollingManager &manager() const noexcept { return manager_; }
+
+    /** @brief Number of active long-polling sessions. */
     std::size_t session_count() const { return manager_.session_count(); }
+
+    /** @brief Buffered messages count for a session (0 if missing). */
     std::size_t buffer_size(const SessionId &sid) const { return manager_.buffer_size(sid); }
 
   private:
+    /** @brief Default resolver: room-based if available, otherwise broadcast. */
     SessionId resolve_session_id(const JsonMessage &msg) const
     {
       if (resolver_)

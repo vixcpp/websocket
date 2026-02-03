@@ -22,59 +22,63 @@
  * @file Metrics.hpp
  * @brief Lightweight Prometheus-style metrics for the Vix WebSocket module.
  *
- * This header provides a minimal, self-contained metrics structure that can be
- * used by WebSocket servers and clients to expose runtime statistics in a
- * Prometheus-compatible text format.
- *
- * The primary goals are:
- *   - Keep metrics opt-in and lightweight.
- *   - Avoid coupling the core WebSocket API to any specific monitoring stack.
- *   - Provide a canonical place for counters used across examples and apps.
- *
- * Typical usage
- * -------------
- * @code{.cpp}
- * using vix::websocket::WebSocketMetrics;
- *
- * WebSocketMetrics metrics;
- *
- * // in your WebSocket server:
- * ws.on_open([&](auto&){ metrics.connections_total++; metrics.connections_active++; });
- * ws.on_close([&](auto&){ metrics.connections_active--; });
- *
- * ws.on_typed_message([&](auto&, auto&, auto&){
- *     metrics.messages_in_total++;
- *     // ...
- * });
- *
- * // before broadcasting:
- * metrics.messages_out_total++;
- *
- * // export via HTTP endpoint:
- * std::thread([&]{
- *     vix::websocket::run_metrics_http_exporter(metrics, "0.0.0.0", 9100);
- * }).detach();
- * @endcode
+ * Defines canonical counters/gauges shared by WebSocket server/client components
+ * and long-polling bridge, with a helper to render Prometheus text exposition.
  */
 
 namespace vix::websocket
 {
+  /**
+   * @brief Prometheus-style counters and gauges for WebSocket + long-polling.
+   *
+   * Counters are monotonically increasing totals. Gauges reflect current state.
+   * All fields are atomic to allow updates across threads.
+   */
   struct WebSocketMetrics
   {
+    /** @brief Total number of accepted WS connections since start (counter). */
     std::atomic<std::uint64_t> connections_total{0};
+    /** @brief Current number of active WS connections (gauge). */
     std::atomic<std::uint64_t> connections_active{0};
+
+    /** @brief Total inbound messages processed (counter). */
     std::atomic<std::uint64_t> messages_in_total{0};
+    /** @brief Total outbound messages sent/broadcast (counter). */
     std::atomic<std::uint64_t> messages_out_total{0};
+
+    /** @brief Total errors observed (counter). */
     std::atomic<std::uint64_t> errors_total{0};
+
+    /** @brief Total long-polling sessions created (counter). */
     std::atomic<std::uint64_t> lp_sessions_total{0};
+    /** @brief Current number of active long-polling sessions (gauge). */
     std::atomic<std::uint64_t> lp_sessions_active{0};
+
+    /** @brief Total long-polling poll calls served (counter). */
     std::atomic<std::uint64_t> lp_polls_total{0};
+
+    /** @brief Current number of buffered messages across sessions (gauge-like). */
     std::atomic<std::uint64_t> lp_messages_buffered{0};
+    /** @brief Total messages enqueued into LP buffers (counter). */
     std::atomic<std::uint64_t> lp_messages_enqueued_total{0};
+    /** @brief Total messages drained from LP buffers (counter). */
     std::atomic<std::uint64_t> lp_messages_drained_total{0};
+
+    /**
+     * @brief Render metrics in Prometheus text exposition format.
+     */
     [[nodiscard]] std::string render_prometheus() const;
   };
 
+  /**
+   * @brief Run a minimal HTTP exporter for metrics (blocking).
+   *
+   * Exposes an HTTP endpoint that returns metrics.render_prometheus().
+   *
+   * @param metrics Metrics instance to export.
+   * @param address Bind address (default 0.0.0.0).
+   * @param port Bind port (default 9100).
+   */
   void run_metrics_http_exporter(
       WebSocketMetrics &metrics,
       const std::string &address = "0.0.0.0",

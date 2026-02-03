@@ -22,13 +22,32 @@
 
 namespace vix::websocket
 {
+  /**
+   * @brief Runtime configuration for the WebSocket server.
+   *
+   * This struct is derived from the core configuration and controls
+   * limits, timeouts, and protocol-level behavior of WebSocket connections.
+   */
   struct Config
   {
+    /** @brief Maximum accepted WebSocket message size in bytes. */
     std::size_t maxMessageSize = 64 * 1024; // 64 KiB
+
+    /** @brief Idle connection timeout before closing. */
     std::chrono::seconds idleTimeout{60};
+
+    /** @brief Enable per-message deflate compression. */
     bool enablePerMessageDeflate = true;
+
+    /** @brief Automatically handle ping/pong frames. */
     bool autoPingPong = true;
+
+    /** @brief Interval at which ping frames are sent. */
     std::chrono::seconds pingInterval{30};
+
+    /**
+     * @brief Build a WebSocket config from the core application config.
+     */
     static Config from_core(const vix::config::Config &core);
   };
 
