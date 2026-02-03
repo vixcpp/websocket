@@ -23,29 +23,37 @@
 namespace vix::websocket
 {
   /**
-   * @brief Abstraction de stockage pour les messages WebSocket.
+   * @brief Abstract persistence interface for JsonMessage history.
    *
-   * Pensé pour être implémenté avec SQLite, Postgres, Redis, etc.
-   *
-   * Sémantique attendue :
-   *  - append(msg) : persiste un message (id, kind, room, type, ts, payload)
-   *  - list_by_room(room, limit, before_id) :
-   *      → retourne les derniers messages d'une room
-   *      → ordonnés du plus récent au plus ancien (newest-first)
-   *      → si before_id est défini, ne retourne que les messages STRICTEMENT plus anciens.
-   *  - replay_from(id, limit) :
-   *      → retourne les messages avec id STRICTEMENT > id
-   *      → ordonnés du plus ancien au plus récent (oldest-first)
+   * Provides an optional backend for chat history, replay, and room queries.
+   * Implementations may use SQLite/WAL, files, or any durable store.
    */
   class IMessageStore
   {
   public:
     virtual ~IMessageStore() = default;
+
+    /** @brief Append a message to the store. */
     virtual void append(const JsonMessage &msg) = 0;
+
+    /**
+     * @brief List messages for a room (newest-first or store-defined ordering).
+     *
+     * @param room Room identifier.
+     * @param limit Maximum number of messages to return.
+     * @param before_id Optional cursor for pagination.
+     */
     virtual std::vector<JsonMessage> list_by_room(
         const std::string &room,
         std::size_t limit,
         const std::optional<std::string> &before_id = std::nullopt) = 0;
+
+    /**
+     * @brief Replay messages starting from a given message id.
+     *
+     * @param start_id Cursor id to start from (store-defined semantics).
+     * @param limit Maximum number of messages to return.
+     */
     virtual std::vector<JsonMessage> replay_from(
         const std::string &start_id,
         std::size_t limit) = 0;

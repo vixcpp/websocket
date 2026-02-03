@@ -38,16 +38,35 @@
 
 namespace vix::websocket
 {
+  /**
+   * @brief High-level WebSocket server with routing, rooms, and typed messages.
+   *
+   * Wraps the low-level engine and router, manages active sessions, supports
+   * broadcast (global or per-room), and optionally forwards typed JSON messages
+   * to a LongPollingBridge.
+   */
   class Server
   {
   public:
+    /** @brief Called when a session is opened. */
     using OpenHandler = std::function<void(Session &)>;
+    /** @brief Called when a session is closed. */
     using CloseHandler = std::function<void(Session &)>;
+    /** @brief Called on session errors. */
     using ErrorHandler = std::function<void(Session &, const boost::system::error_code &)>;
+    /** @brief Called on raw text frames. */
     using MessageHandler = std::function<void(Session &, const std::string &)>;
+    /** @brief Called on typed {type,payload} JSON messages. */
     using TypedMessageHandler = std::function<void(Session &, const std::string &, const vix::json::kvs &)>;
+    /** @brief Room identifier. */
     using RoomId = std::string;
 
+    /**
+     * @brief Construct a WebSocket server.
+     *
+     * @param cfg Config provider (used for port and engine settings).
+     * @param executor Shared executor used by the engine.
+     */
     Server(vix::config::Config &cfg,
            std::shared_ptr<vix::executor::IExecutor> executor)
         : cfg_(cfg),
@@ -117,6 +136,9 @@ namespace vix::websocket
           });
     }
 
+    /**
+     * @brief Construct a WebSocket server from a unique executor.
+     */
     Server(vix::config::Config &cfg,
            std::unique_ptr<vix::executor::IExecutor> executor)
         : Server(cfg,
@@ -124,17 +146,26 @@ namespace vix::websocket
     {
     }
 
+    /** @brief Set the on-open handler. */
     void on_open(OpenHandler fn) { userOnOpen_ = std::move(fn); }
+    /** @brief Set the on-close handler. */
     void on_close(CloseHandler fn) { userOnClose_ = std::move(fn); }
+    /** @brief Set the on-error handler. */
     void on_error(ErrorHandler fn) { userOnError_ = std::move(fn); }
+    /** @brief Set the on-message handler (raw text). */
     void on_message(MessageHandler fn) { userOnMessage_ = std::move(fn); }
 
-    /// Handler for the { type, payload } JSON convention using vix::json::kvs.
+    /**
+     * @brief Set the typed message handler for {type,payload} JSON convention.
+     */
     void on_typed_message(TypedMessageHandler fn)
     {
       userOnTypedMessage_ = std::move(fn);
     }
 
+    /**
+     * @brief Start the WebSocket engine (non-blocking setup, then runs IO threads).
+     */
     void start()
     {
       vix::utils::Logger::getInstance().log(vix::utils::Logger::Level::INFO,
@@ -142,12 +173,18 @@ namespace vix::websocket
       engine_.run();
     }
 
+    /**
+     * @brief Stop the engine and join all internal threads.
+     */
     void stop()
     {
       engine_.stop_async();
       engine_.join_threads();
     }
 
+    /**
+     * @brief Start the server and block until stop is requested.
+     */
     void listen_blocking()
     {
       start();
@@ -155,11 +192,17 @@ namespace vix::websocket
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
+    /**
+     * @brief Get listening port from config (default 9090).
+     */
     int port() const
     {
       return cfg_.getInt("websocket.port", 9090);
     }
 
+    /**
+     * @brief Broadcast a raw text frame to all connected sessions.
+     */
     void broadcast_text(const std::string &text)
     {
       std::lock_guard<std::mutex> lock(sessionsMutex_);
@@ -174,16 +217,20 @@ namespace vix::websocket
       }
     }
 
-    /// Broadcasts a { type, payload } JSON message using vix::json::kvs.
+    /**
+     * @brief Broadcast a typed {type,payload} JSON message to all sessions.
+     */
     void broadcast_json(const std::string &type, const vix::json::kvs &payload)
     {
       broadcast_text(JsonMessage::serialize(type, payload));
     }
 
-    /// Broadcasts a { type, payload } JSON message using vix::json::token list.
-    ///
-    /// Example:
-    ///   server.broadcast_json("chat.message", { "user", "alice", "text", "hello" });
+    /**
+     * @brief Broadcast a typed {type,payload} JSON message to all sessions.
+     *
+     * Example:
+     *   server.broadcast_json("chat.message", { "user", "alice", "text", "hello" });
+     */
     void broadcast_json(const std::string &type,
                         std::initializer_list<vix::json::token> payloadTokens)
     {
@@ -191,6 +238,9 @@ namespace vix::websocket
       broadcast_text(JsonMessage::serialize(type, kv));
     }
 
+    /**
+     * @brief Add a session to a room (idempotent).
+     */
     void join_room(Session &session, const RoomId &room)
     {
       auto sp = session.shared_from_this();
@@ -215,6 +265,9 @@ namespace vix::websocket
       }
     }
 
+    /**
+     * @brief Remove a session from a room.
+     */
     void leave_room(Session &session, const RoomId &room)
     {
       auto sp = session.shared_from_this();
@@ -241,6 +294,9 @@ namespace vix::websocket
       }
     }
 
+    /**
+     * @brief Remove a session from all rooms.
+     */
     void leave_all_rooms(Session &session)
     {
       auto sp = session.shared_from_this();
@@ -248,6 +304,9 @@ namespace vix::websocket
       remove_session_from_all_rooms_locked(sp);
     }
 
+    /**
+     * @brief Broadcast a raw text frame to all sessions in a room.
+     */
     void broadcast_room_text(const RoomId &room, const std::string &text)
     {
       std::lock_guard<std::mutex> lock(sessionsMutex_);
@@ -269,7 +328,9 @@ namespace vix::websocket
       }
     }
 
-    /// Broadcast {type, payload} JSON to a specific room.
+    /**
+     * @brief Broadcast a typed {type,payload} JSON message to a specific room.
+     */
     void broadcast_room_json(const RoomId &room,
                              const std::string &type,
                              const vix::json::kvs &payload)
@@ -277,7 +338,9 @@ namespace vix::websocket
       broadcast_room_text(room, JsonMessage::serialize(type, payload));
     }
 
-    /// Broadcast {type, payload} JSON to a specific room with token list.
+    /**
+     * @brief Broadcast a typed {type,payload} JSON message to a room (token list).
+     */
     void broadcast_room_json(const RoomId &room,
                              const std::string &type,
                              std::initializer_list<vix::json::token> payloadTokens)
@@ -286,26 +349,31 @@ namespace vix::websocket
       broadcast_room_text(room, JsonMessage::serialize(type, kv));
     }
 
-    /// Attach a long-polling bridge to receive JsonMessage events.
-    /// Once attached, every parsed JsonMessage will be forwarded to the bridge.
+    /**
+     * @brief Attach a long-polling bridge to receive typed JsonMessage events.
+     *
+     * Once attached, every parsed JsonMessage will be forwarded to the bridge.
+     */
     void attach_long_polling_bridge(std::shared_ptr<LongPollingBridge> bridge)
     {
       longPollingBridge_ = std::move(bridge);
     }
 
-    /// Access the long-polling bridge (may be null).
+    /** @brief Access the long-polling bridge (may be null). */
     std::shared_ptr<LongPollingBridge> long_polling_bridge() const noexcept
     {
       return longPollingBridge_;
     }
 
   private:
+    /** @brief Track a newly opened session. */
     void register_session(std::shared_ptr<Session> s)
     {
       std::lock_guard<std::mutex> lock(sessionsMutex_);
       sessions_.emplace_back(std::move(s));
     }
 
+    /** @brief Remove a session from the tracked list. */
     void unregister_session(std::shared_ptr<Session> s)
     {
       std::lock_guard<std::mutex> lock(sessionsMutex_);
@@ -322,6 +390,7 @@ namespace vix::websocket
           sessions_.end());
     }
 
+    /** @brief Drop expired sessions (must be called under sessionsMutex_). */
     void cleanup_sessions_locked()
     {
       sessions_.erase(
@@ -335,6 +404,7 @@ namespace vix::websocket
           sessions_.end());
     }
 
+    /** @brief Drop expired sessions from rooms and remove empty rooms. */
     void cleanup_rooms_locked()
     {
       for (auto it = rooms_.begin(); it != rooms_.end();)
@@ -360,12 +430,14 @@ namespace vix::websocket
       }
     }
 
+    /** @brief Remove a session from all rooms (locks internally). */
     void remove_session_from_all_rooms(std::shared_ptr<Session> s)
     {
       std::lock_guard<std::mutex> lock(sessionsMutex_);
       remove_session_from_all_rooms_locked(s);
     }
 
+    /** @brief Remove a session from all rooms (requires sessionsMutex_ held). */
     void remove_session_from_all_rooms_locked(std::shared_ptr<Session> s)
     {
       for (auto it = rooms_.begin(); it != rooms_.end();)

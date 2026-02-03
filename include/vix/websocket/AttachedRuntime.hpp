@@ -33,9 +33,24 @@
 
 namespace vix::websocket
 {
+  /**
+   * @brief Runs a WebSocket server alongside an HTTP App, with shared lifecycle.
+   *
+   * Starts the WebSocket server on a dedicated thread and stops it when the HTTP
+   * app requests shutdown or when this object is destroyed.
+   */
   class AttachedRuntime
   {
   public:
+    /**
+     * @brief Attach a WebSocket server to an existing HTTP app.
+     *
+     * Starts the WebSocket server in a background thread and registers an app
+     * shutdown callback to stop the WebSocket runtime.
+     *
+     * @param app HTTP application instance.
+     * @param ws WebSocket server instance.
+     */
     AttachedRuntime(vix::App &app, vix::websocket::Server &ws)
         : app_(app), ws_(ws), wsThread_(), stopped_(false)
     {
@@ -53,6 +68,9 @@ namespace vix::websocket
                                  { stop(); });
     }
 
+    /**
+     * @brief Stop the runtime if still running.
+     */
     ~AttachedRuntime()
     {
       stop();
@@ -63,6 +81,11 @@ namespace vix::websocket
     AttachedRuntime(AttachedRuntime &&) = delete;
     AttachedRuntime &operator=(AttachedRuntime &&) = delete;
 
+    /**
+     * @brief Stop the WebSocket server and join the worker thread.
+     *
+     * Safe to call multiple times.
+     */
     void stop() noexcept
     {
       bool expected = false;
@@ -86,6 +109,11 @@ namespace vix::websocket
 
 namespace vix
 {
+  /**
+   * @brief Register WebSocket OpenAPI documentation endpoints once per process.
+   *
+   * Uses a global registry and is guarded by std::call_once.
+   */
   inline void register_ws_openapi_docs_once()
   {
     static std::once_flag once;
@@ -97,6 +125,16 @@ namespace vix
                          "/metrics"); });
   }
 
+  /**
+   * @brief Run HTTP and WebSocket servers together (blocking).
+   *
+   * Registers WebSocket OpenAPI docs once, starts the WebSocket runtime,
+   * then starts the HTTP server and waits until shutdown.
+   *
+   * @param app HTTP application instance.
+   * @param ws WebSocket server instance.
+   * @param port HTTP listening port.
+   */
   inline void run_http_and_ws(vix::App &app, vix::websocket::Server &ws, int port = 8080)
   {
     // Register docs once (global registry). No router needed.
@@ -118,6 +156,17 @@ namespace vix
     app.close();
   }
 
+  /**
+   * @brief Build and serve a combined HTTP + WebSocket runtime from a config path.
+   *
+   * Creates a shared executor, constructs the HTTP app and WebSocket server,
+   * lets the caller configure routes/handlers, then runs both servers.
+   *
+   * @tparam ConfigureFn Callable type.
+   * @param configPath Path to the config file.
+   * @param port HTTP listening port.
+   * @param fn Configuration callback: fn(app, ws).
+   */
   template <typename ConfigureFn>
   inline void serve_http_and_ws(
       const std::filesystem::path &configPath,
@@ -140,6 +189,12 @@ namespace vix
     run_http_and_ws(app, ws, port);
   }
 
+  /**
+   * @brief Convenience overload using default config path and port.
+   *
+   * @tparam ConfigureFn Callable type.
+   * @param fn Configuration callback: fn(app, ws).
+   */
   template <typename ConfigureFn>
   inline void serve_http_and_ws(ConfigureFn &&fn)
   {

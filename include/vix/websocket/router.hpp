@@ -22,6 +22,14 @@ namespace vix::websocket
 {
   class Session;
 
+  /**
+   * @brief Lightweight event router for WebSocket sessions.
+   *
+   * Acts as a simple dispatch layer between the low-level WebSocket engine
+   * and user-defined callbacks (open, close, error, message).
+   *
+   * The router itself contains no protocol logic and is intentionally minimal.
+   */
   class Router
   {
   public:
@@ -32,14 +40,28 @@ namespace vix::websocket
 
     Router() = default;
 
+    /** @brief Register callback invoked when a session is opened. */
     void on_open(OpenHandler cb) { openHandler_ = std::move(cb); }
+
+    /** @brief Register callback invoked when a session is closed. */
     void on_close(CloseHandler cb) { closeHandler_ = std::move(cb); }
+
+    /** @brief Register callback invoked on WebSocket error. */
     void on_error(ErrorHandler cb) { errorHandler_ = std::move(cb); }
+
+    /** @brief Register callback invoked on incoming text message. */
     void on_message(MessageHandler cb) { messageHandler_ = std::move(cb); }
 
+    /** @brief Dispatch open event to the registered handler. */
     void handle_open(Session &session) const;
+
+    /** @brief Dispatch close event to the registered handler. */
     void handle_close(Session &session) const;
+
+    /** @brief Dispatch error event to the registered handler. */
     void handle_error(Session &session, const boost::system::error_code &ec) const;
+
+    /** @brief Dispatch message event to the registered handler. */
     void handle_message(Session &session, std::string payload) const;
 
   private:

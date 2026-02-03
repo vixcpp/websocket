@@ -18,28 +18,17 @@
  * @file protocol.hpp
  * @brief JSON protocol helpers for WebSocket messages.
  *
- * Protocole standardisé pour préparer la persistance (SQLite + WAL).
+ * Standardized envelope to support typed messaging and future persistence (SQLite + WAL).
  *
- * Format JSON sur le fil :
- *
+ * Wire format:
  * {
- *   "id":     "msg-123",                    // optional, string
+ *   "id":     "msg-123",                    // optional
  *   "kind":   "event" | "system" | "error", // optional, default "event"
  *   "ts":     "2025-12-07T10:15:30Z",       // optional, ISO-8601 UTC
  *   "room":   "africa",                     // optional
- *   "type":   "chat.message",               // required (logique métier)
+ *   "type":   "chat.message",               // required (business type)
  *   "payload": { ... }                      // arbitrary key/values (vix::json::kvs)
  * }
- *
- * Public API :
- *   - JsonMessage::parse(text)
- *   - JsonMessage::serialize(...)
- *   - Helpers get_string(), get<T>() sur payload
- *
- * NOTE:
- *   - Les champs id / kind / ts / room peuvent être ignorés par les applis simples.
- *   - Pour WAL / SQLite:
- *       columns: id, room, kind, type, ts, payload_json
  */
 
 #include <string>
@@ -53,6 +42,7 @@ namespace vix::websocket
 {
   namespace detail
   {
+    /** @brief Convert a vix::json::token to a nlohmann::json value. */
     inline nlohmann::json ws_token_to_nlohmann(const vix::json::token &t)
     {
       nlohmann::json j = nullptr;
@@ -114,6 +104,7 @@ namespace vix::websocket
       return j;
     }
 
+    /** @brief Convert a flat kvs list (k,v,k,v,...) into a nlohmann::json object. */
     inline nlohmann::json ws_kvs_to_nlohmann(const vix::json::kvs &list)
     {
       nlohmann::json obj = nlohmann::json::object();
@@ -134,6 +125,7 @@ namespace vix::websocket
       return obj;
     }
 
+    /** @brief Convert a JSON payload object into vix::json::kvs (best-effort). */
     inline vix::json::kvs nlohmann_payload_to_kvs(const nlohmann::json &payload)
     {
       vix::json::kvs kv;
@@ -178,17 +170,12 @@ namespace vix::websocket
 
   } // namespace detail
 
-  /// High-level protocol envelope for WebSocket text frames.
-  ///
-  /// This struct is designed to map almost 1:1 to a DB row:
-  ///
-  ///   id      → TEXT / INTEGER PRIMARY KEY
-  ///   kind    → TEXT (event / system / error / ...)
-  ///   ts      → TEXT (ISO-8601, UTC)
-  ///   room    → TEXT (nullable)
-  ///   type    → TEXT (business type, e.g. chat.message)
-  ///   payload → JSON text (from kvs)
-  ///
+  /**
+   * @brief Typed WebSocket message envelope (designed for future DB/WAL persistence).
+   *
+   * Maps cleanly to a DB row: id, room, kind, type, ts, payload_json.
+   * Only "type" is required. Other fields are optional for simple applications.
+   */
   struct JsonMessage
   {
     std::string id{};
@@ -200,7 +187,7 @@ namespace vix::websocket
 
     JsonMessage() = default;
 
-    /// Get a string from payload["key"], or empty string if missing.
+    /** @brief Read payload["key"] as string, or empty string if missing/mismatched. */
     std::string get_string(const std::string &key) const
     {
       const auto &a = payload.flat;
@@ -223,6 +210,11 @@ namespace vix::websocket
       return {};
     }
 
+    /**
+     * @brief Read payload["key"] as type T.
+     *
+     * Returns std::nullopt if missing or if the stored token type does not match T.
+     */
     template <typename T>
     std::optional<T> get(const std::string &key) const
     {
@@ -246,6 +238,11 @@ namespace vix::websocket
       return std::nullopt;
     }
 
+    /**
+     * @brief Parse a JSON text frame into JsonMessage.
+     *
+     * Returns nullopt on invalid JSON, wrong shape, or missing "type".
+     */
     static std::optional<JsonMessage> parse(std::string_view s)
     {
       try
@@ -268,6 +265,9 @@ namespace vix::websocket
         if (msg.type.empty())
           return std::nullopt;
 
+        if (msg.kind.empty())
+          msg.kind = "event";
+
         return msg;
       }
       catch (...)
@@ -276,6 +276,7 @@ namespace vix::websocket
       }
     }
 
+    /** @brief Serialize a JsonMessage to compact JSON text. */
     static std::string serialize(const JsonMessage &m)
     {
       nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
@@ -296,14 +297,9 @@ namespace vix::websocket
       return j.dump();
     }
 
-    /// Convenience: serialize type + payload seulement (métadonnées optionnelles).
-    ///
-    /// Exemple simple :
-    ///   JsonMessage::serialize("chat.message", payloadKvs);
-    ///
-    /// Exemple avancé avec room:
-    ///   JsonMessage::serialize("chat.message", payloadKvs, "africa");
-    ///
+    /**
+     * @brief Convenience serializer for type + payload with optional metadata.
+     */
     static std::string serialize(
         const std::string &type,
         const vix::json::kvs &payloadKvs,
@@ -323,13 +319,9 @@ namespace vix::websocket
       return serialize(m);
     }
 
-    /// Convert this JsonMessage into a nlohmann::json object.
-    ///
-    /// This mirrors the structure produced by serialize(), but returns
-    /// the JSON object instead of a string.
+    /** @brief Convert this message to a nlohmann::json object (same shape as serialize()). */
     nlohmann::json to_nlohmann() const
     {
-      // payload -> nlohmann::json
       nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(payload);
 
       nlohmann::json j = nlohmann::json::object();
@@ -350,17 +342,7 @@ namespace vix::websocket
     }
   };
 
-  /// Convert a single JsonMessage to nlohmann::json.
-  ///
-  /// Shape:
-  /// {
-  ///   "id": "...",
-  ///   "kind": "...",
-  ///   "ts": "...",
-  ///   "room": "...",
-  ///   "type": "chat.message",
-  ///   "payload": { ... }
-  /// }
+  /** @brief Convert a single JsonMessage to nlohmann::json (same shape as serialize()). */
   inline nlohmann::json json_message_to_nlohmann(const JsonMessage &m)
   {
     nlohmann::json payloadJson = detail::ws_kvs_to_nlohmann(m.payload);
@@ -381,12 +363,7 @@ namespace vix::websocket
     return j;
   }
 
-  /// Convert a vector<JsonMessage> to a JSON array.
-  ///
-  /// Typical use in /ws/poll:
-  ///   auto messages = bridge.poll(sessionId, max);
-  ///   auto arr = json_messages_to_nlohmann_array(messages);
-  ///   res.json(arr);
+  /** @brief Convert multiple messages to a JSON array (useful for /ws/poll). */
   inline nlohmann::json json_messages_to_nlohmann_array(
       const std::vector<JsonMessage> &messages)
   {
@@ -406,9 +383,7 @@ namespace vix::websocket
     return arr;
   }
 
-  /// Serialize a vector<JsonMessage> as a compact JSON string.
-  ///
-  /// Equivalent to json_messages_to_nlohmann_array(...).dump().
+  /** @brief Serialize multiple messages as a compact JSON array string. */
   inline std::string serialize_messages_array(
       const std::vector<JsonMessage> &messages)
   {

@@ -39,14 +39,31 @@ namespace vix::websocket
   namespace websocket = beast::websocket;
   using tcp = net::ip::tcp;
 
+  /**
+   * @brief Minimal WebSocket client with typed JSON messages.
+   *
+   * Provides connect, async read/write, optional heartbeat ping, and optional
+   * auto-reconnect. Callbacks can be registered for open, message, close, and error.
+   */
   class Client : public std::enable_shared_from_this<Client>
   {
   public:
+    /** @brief Called after the WebSocket handshake succeeds. */
     using OpenHandler = std::function<void()>;
+    /** @brief Called when a text frame is received. */
     using MessageHandler = std::function<void(const std::string &)>;
+    /** @brief Called when the connection closes. */
     using CloseHandler = std::function<void()>;
+    /** @brief Called on async errors (resolve/connect/handshake/read/write/ping/close). */
     using ErrorHandler = std::function<void(const boost::system::error_code &)>;
 
+    /**
+     * @brief Create a client instance.
+     *
+     * @param host Hostname or IP.
+     * @param port Service/port (e.g. "9090").
+     * @param target WebSocket target path (default "/").
+     */
     static std::shared_ptr<Client> create(
         std::string host,
         std::string port,
@@ -56,11 +73,21 @@ namespace vix::websocket
           new Client(std::move(host), std::move(port), std::move(target)));
     }
 
+    /** @brief Set the on-open callback. */
     void on_open(OpenHandler cb) { onOpen_ = std::move(cb); }
+    /** @brief Set the on-message callback. */
     void on_message(MessageHandler cb) { onMessage_ = std::move(cb); }
+    /** @brief Set the on-close callback. */
     void on_close(CloseHandler cb) { onClose_ = std::move(cb); }
+    /** @brief Set the on-error callback. */
     void on_error(ErrorHandler cb) { onError_ = std::move(cb); }
 
+    /**
+     * @brief Enable or disable auto-reconnect after failures.
+     *
+     * @param enable Whether to reconnect automatically.
+     * @param delay Delay before attempting reconnect.
+     */
     void enable_auto_reconnect(
         bool enable,
         std::chrono::seconds delay = std::chrono::seconds{3})
@@ -69,6 +96,11 @@ namespace vix::websocket
       reconnectDelay_ = delay;
     }
 
+    /**
+     * @brief Enable periodic ping heartbeat.
+     *
+     * @param interval Ping interval. If <= 0, heartbeat is disabled.
+     */
     void enable_heartbeat(std::chrono::seconds interval)
     {
       if (interval.count() <= 0)
@@ -80,6 +112,11 @@ namespace vix::websocket
       heartbeatEnabled_ = true;
     }
 
+    /**
+     * @brief Connect asynchronously and start the IO thread.
+     *
+     * Safe to call once; subsequent calls are ignored until reconnect logic resets.
+     */
     void connect()
     {
       if (!alive_.load(std::memory_order_relaxed) || closing_.load(std::memory_order_relaxed))
@@ -109,44 +146,11 @@ namespace vix::websocket
                 { self->do_resolve(); });
     }
 
-    void do_write()
-    {
-      if (!ws_ || closing_)
-        return;
-
-      std::string current;
-      {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        if (writeQueue_.empty())
-        {
-          writeInProgress_ = false;
-          return;
-        }
-        current = writeQueue_.front();
-      }
-
-      auto self = shared_from_this();
-      ws_->async_write(
-          net::buffer(current),
-          [self](const boost::system::error_code &ec, std::size_t)
-          {
-            {
-              std::lock_guard<std::mutex> lock(self->writeMutex_);
-              if (!self->writeQueue_.empty())
-                self->writeQueue_.pop_front();
-            }
-
-            if (ec && ec != net::error::operation_aborted)
-            {
-              self->emit_error(ec, "write");
-              self->maybe_schedule_reconnect(ec);
-              return;
-            }
-
-            self->do_write();
-          });
-    }
-
+    /**
+     * @brief Queue and send a raw text frame.
+     *
+     * Thread-safe: enqueues on the websocket executor and sends sequentially.
+     */
     void send_text(const std::string &text)
     {
       if (!connected_ || closing_ || !ws_)
@@ -174,6 +178,11 @@ namespace vix::websocket
           });
     }
 
+    /**
+     * @brief Send a typed JSON message.
+     *
+     * Format: {"type": "<type>", "payload": { ... }}.
+     */
     void send_json_message(
         const std::string &type,
         const vix::json::kvs &payload)
@@ -188,6 +197,9 @@ namespace vix::websocket
       send_text(j.dump());
     }
 
+    /**
+     * @brief Send a typed JSON message using an initializer-list of tokens.
+     */
     void send_json_message(
         const std::string &type,
         std::initializer_list<vix::json::token> payloadTokens)
@@ -196,6 +208,9 @@ namespace vix::websocket
       send_json_message(type, payload);
     }
 
+    /**
+     * @brief Send a WebSocket ping frame (async).
+     */
     void send_ping()
     {
       if (!connected_ || closing_ || !ws_)
@@ -222,6 +237,11 @@ namespace vix::websocket
           });
     }
 
+    /**
+     * @brief Close the connection and stop all threads.
+     *
+     * Safe to call multiple times.
+     */
     void close()
     {
       if (closing_.exchange(true))
@@ -263,6 +283,9 @@ namespace vix::websocket
         heartbeatThread_.join();
     }
 
+    /**
+     * @brief Destructor calls close() and swallows exceptions.
+     */
     ~Client()
     {
       try
@@ -274,6 +297,9 @@ namespace vix::websocket
       }
     }
 
+    /**
+     * @brief Send a typed JSON message.
+     */
     void send(
         const std::string &type,
         const vix::json::kvs &payload)
@@ -306,6 +332,46 @@ namespace vix::websocket
     {
     }
 
+    /** @brief Start a queued async write if needed. Runs on ws executor. */
+    void do_write()
+    {
+      if (!ws_ || closing_)
+        return;
+
+      std::string current;
+      {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        if (writeQueue_.empty())
+        {
+          writeInProgress_ = false;
+          return;
+        }
+        current = writeQueue_.front();
+      }
+
+      auto self = shared_from_this();
+      ws_->async_write(
+          net::buffer(current),
+          [self](const boost::system::error_code &ec, std::size_t)
+          {
+            {
+              std::lock_guard<std::mutex> lock(self->writeMutex_);
+              if (!self->writeQueue_.empty())
+                self->writeQueue_.pop_front();
+            }
+
+            if (ec && ec != net::error::operation_aborted)
+            {
+              self->emit_error(ec, "write");
+              self->maybe_schedule_reconnect(ec);
+              return;
+            }
+
+            self->do_write();
+          });
+    }
+
+    /** @brief Reset IO state, sockets, and worker threads. */
     void init_io()
     {
       if (ioc_)
@@ -326,6 +392,7 @@ namespace vix::websocket
       heartbeatStop_.store(false, std::memory_order_relaxed);
     }
 
+    /** @brief Resolve host and port. */
     void do_resolve()
     {
       auto self = shared_from_this();
@@ -344,6 +411,7 @@ namespace vix::websocket
           });
     }
 
+    /** @brief Connect the underlying TCP socket. */
     void do_connect(const tcp::resolver::results_type &results)
     {
       auto self = shared_from_this();
@@ -363,6 +431,7 @@ namespace vix::websocket
           });
     }
 
+    /** @brief Perform the WebSocket handshake. */
     void do_handshake()
     {
       auto self = shared_from_this();
@@ -394,6 +463,7 @@ namespace vix::websocket
           });
     }
 
+    /** @brief Read loop for incoming messages. */
     void do_read()
     {
       auto self = shared_from_this();
@@ -428,6 +498,7 @@ namespace vix::websocket
           });
     }
 
+    /** @brief Start heartbeat thread that periodically sends ping. */
     void start_heartbeat()
     {
       if (heartbeatThread_.joinable())
@@ -446,11 +517,11 @@ namespace vix::websocket
                         self->heartbeatStop_.load(std::memory_order_relaxed))
                         continue;
 
-
                     self->send_ping();
                 } });
     }
 
+    /** @brief Schedule a reconnect attempt if enabled and appropriate. */
     void maybe_schedule_reconnect(const boost::system::error_code &ec)
     {
       if (!autoReconnect_.load(std::memory_order_relaxed) ||
@@ -485,6 +556,7 @@ namespace vix::websocket
           .detach();
     }
 
+    /** @brief Emit an error through callback or stderr. */
     void emit_error(const boost::system::error_code &ec,
                     const char *stage)
     {
