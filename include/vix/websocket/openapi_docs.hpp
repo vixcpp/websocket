@@ -111,6 +111,13 @@ namespace vix::websocket::openapi
            }},
       };
 
+      // ICI: example pour pre-remplir Swagger UI
+      doc.request_body["content"]["application/json"]["example"] = {
+          {"type", "chat.message"},
+          {"room", "general"},
+          {"payload", {{"text", "Hello"}}},
+      };
+
       doc.responses["202"] = {{"description", "Queued"}};
       doc.responses["400"] = {{"description", "Invalid JSON body or missing fields"}};
       doc.responses["503"] = {{"description", "Long-poll bridge not attached"}};
