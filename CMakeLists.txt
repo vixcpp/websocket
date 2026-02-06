@@ -153,7 +153,10 @@ if (WEBSOCKET_SOURCES)
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-          FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
+        FILES_MATCHING
+          PATTERN "*.hpp"
+          PATTERN "*.h"
+          PATTERN "*.inc")
 
 # HEADER-ONLY
 else()

@@ -19,9 +19,10 @@
 #include <vix/config/Config.hpp>
 #include <vix/utils/ServerPrettyLogs.hpp>
 #include <vix/experimental/ThreadPoolExecutor.hpp>
+#include <vix/console.hpp>
 
-// WebSocket OpenAPI docs (router-based)
 #include <vix/websocket/openapi_docs.hpp>
+#include <vix/openapi/register_docs.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -137,20 +138,28 @@ namespace vix
    */
   inline void run_http_and_ws(vix::App &app, vix::websocket::Server &ws, int port = 8080)
   {
-    // Register docs once (global registry). No router needed.
     register_ws_openapi_docs_once();
-
+    auto r = app.router();
+    if (r)
+      vix::openapi::register_openapi_and_docs(*r, "Vix API", "0.0.0");
     vix::websocket::AttachedRuntime runtime{app, ws};
 
-    app.listen(port, [&](const vix::utils::ServerReadyInfo &base)
+    app.listen(port, [&]()
                {
-                 vix::utils::ServerReadyInfo info = base;
-                 info.show_ws = true;
-                 info.ws_scheme = "ws";
-                 info.ws_host = "localhost";
-                 info.ws_port = ws.port();
-                 info.ws_path = "/";
-                 vix::utils::RuntimeBanner::emit_server_ready(info); });
+               if (!app.has_server_ready_info())
+               {
+                 console.warn("server ready info not available");
+                 return;
+               }
+
+               auto info = app.server_ready_info();
+               info.show_ws = true;
+               info.ws_scheme = "ws";
+               info.ws_host = "localhost";
+               info.ws_port = ws.port();
+               info.ws_path = "/";
+
+               vix::utils::RuntimeBanner::emit_server_ready(info); });
 
     app.wait();
     app.close();
