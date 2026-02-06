@@ -251,12 +251,23 @@ namespace vix::websocket::http
     try
     {
       auto maybe = detail::get_json_body(req);
-      body = maybe ? *maybe : nlohmann::json{};
+      if (!maybe)
+      {
+        res.status(400).json({"error", "missing JSON body"});
+        return;
+      }
+
+      body = std::move(*maybe);
+
+      if (!body.is_object())
+      {
+        res.status(400).json({"error", "JSON body must be an object"});
+        return;
+      }
     }
     catch (...)
     {
-      nlohmann::json err{{"error", "invalid JSON body"}};
-      res.status(400).json(err);
+      res.status(400).json({"error", "invalid JSON body"});
       return;
     }
 
