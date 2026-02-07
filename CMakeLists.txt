@@ -69,6 +69,26 @@ if (NOT TARGET vix::core)
   endif()
 endif()
 
+# Utils dependency
+if (NOT TARGET vix::utils)
+  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
+    message(STATUS "[websocket] Adding utils from umbrella: ../utils")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
+  elseif (VIX_WEBSOCKET_FETCH_UTILS)
+    include(FetchContent)
+    message(STATUS "[websocket] Fetching vix::utils via FetchContent")
+    FetchContent_Declare(vix_utils
+      GIT_REPOSITORY https://github.com/vixcpp/utils.git
+      GIT_TAG        dev
+    )
+    FetchContent_MakeAvailable(vix_utils)
+  else()
+    message(FATAL_ERROR
+      "vix::utils not found. Provide vix::utils before websocket "
+      "or enable VIX_WEBSOCKET_FETCH_UTILS=ON.")
+  endif()
+endif()
+
 set(VIX_CORE_TARGET vix::core)
 set(VIX_UTILS_TARGET vix::utils)
 
@@ -110,11 +130,41 @@ endfunction()
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
 
-  find_package(SQLite3 REQUIRED)
   add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
   add_library(vix::websocket ALIAS vix_websocket)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
+
+  # SQLite
+  find_package(SQLite3 REQUIRED)
+
+  # Normalize to SQLite::SQLite3 everywhere
+  if (TARGET SQLite::SQLite3)
+    # ok
+  elseif (TARGET SQLite3::SQLite3)
+    add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
+  elseif (TARGET sqlite3)
+    add_library(SQLite::SQLite3 ALIAS sqlite3)
+  endif()
+
+  if (NOT TARGET SQLite::SQLite3)
+    message(FATAL_ERROR "[websocket] SQLite requested but no usable SQLite target was found.")
+  endif()
+
+  # includes
+  target_include_directories(vix_websocket
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  )
+
+  # link deps
+  target_link_libraries(vix_websocket
+    PUBLIC
+      ${VIX_CORE_TARGET}
+      ${VIX_UTILS_TARGET}
+      SQLite::SQLite3
+  )
 
   if (TARGET vix_warnings)
     target_link_libraries(vix_websocket PUBLIC vix_warnings)
@@ -123,18 +173,6 @@ if (WEBSOCKET_SOURCES)
   if (TARGET vix_sanitizers)
     target_link_libraries(vix_websocket PUBLIC vix_sanitizers)
   endif()
-
-  target_include_directories(vix_websocket
-    PUBLIC
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-      $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-  )
-
-  target_link_libraries(vix_websocket
-    PUBLIC
-      ${VIX_CORE_TARGET}
-      SQLite::SQLite3
-  )
 
   vix_websocket_try_link_json(vix_websocket PUBLIC)
 
@@ -152,12 +190,13 @@ if (WEBSOCKET_SOURCES)
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
-  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        FILES_MATCHING
-          PATTERN "*.hpp"
-          PATTERN "*.h"
-          PATTERN "*.inc")
 
+  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING
+      PATTERN "*.hpp"
+      PATTERN "*.h"
+      PATTERN "*.inc"
+  )
 # HEADER-ONLY
 else()
   message(STATUS "[websocket] Building HEADER-ONLY library (no sources).")
