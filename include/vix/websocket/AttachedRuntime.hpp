@@ -141,7 +141,7 @@ namespace vix
     register_ws_openapi_docs_once();
     auto r = app.router();
     if (r)
-      vix::openapi::register_openapi_and_docs(*r, "Vix API", "0.0.0");
+      vix::openapi::register_openapi_and_docs(*r, "Vix API", "1.33.0");
     vix::websocket::AttachedRuntime runtime{app, ws};
 
     app.listen(port, [&]()
