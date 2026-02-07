@@ -126,6 +126,47 @@ function(vix_websocket_try_link_json onto link_scope)
   endif()
 endfunction()
 
+# Boost (public headers use Boost.Beast via core; make sure includes are SYSTEM to avoid 3rd-party warnings)
+set(VIX_WEBSOCKET_WITH_BOOST "ON" CACHE STRING "Use Boost (ON|OFF)")
+set_property(CACHE VIX_WEBSOCKET_WITH_BOOST PROPERTY STRINGS ON OFF)
+
+set(_vix_boost_includes "")
+
+if (VIX_WEBSOCKET_WITH_BOOST STREQUAL "ON")
+  set(Boost_NO_WARN_NEW_VERSIONS ON)
+
+  find_package(Boost CONFIG QUIET)
+  if (Boost_FOUND)
+    message(STATUS "[websocket] Boost found (CONFIG)")
+  else()
+    message(STATUS "[websocket] Boost not found via CONFIG, using FindBoost")
+    find_package(Boost REQUIRED COMPONENTS system)
+  endif()
+
+  # Normalize headers target across toolchains
+  if (TARGET Boost::headers AND NOT TARGET Boost::boost)
+    add_library(Boost::boost ALIAS Boost::headers)
+  endif()
+
+  # FindBoost path
+  if (Boost_INCLUDE_DIRS)
+    list(APPEND _vix_boost_includes ${Boost_INCLUDE_DIRS})
+  endif()
+
+  # CONFIG target path
+  if (TARGET Boost::boost)
+    get_target_property(_boost_target_includes Boost::boost INTERFACE_INCLUDE_DIRECTORIES)
+    if (_boost_target_includes)
+      list(APPEND _vix_boost_includes ${_boost_target_includes})
+    endif()
+  endif()
+
+  list(REMOVE_DUPLICATES _vix_boost_includes)
+else()
+  message(FATAL_ERROR "[websocket] Boost is required. Set VIX_WEBSOCKET_WITH_BOOST=ON.")
+endif()
+
+
 # STATIC
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
@@ -157,6 +198,16 @@ if (WEBSOCKET_SOURCES)
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
+
+  # Treat Boost headers as SYSTEM (avoid third-party warnings)
+  if (_vix_boost_includes)
+    target_include_directories(vix_websocket SYSTEM PUBLIC ${_vix_boost_includes})
+  endif()
+
+  # Ensure Boost::boost exists/linked if available
+  if (TARGET Boost::boost)
+    target_link_libraries(vix_websocket PUBLIC Boost::boost)
+  endif()
 
   # link deps
   target_link_libraries(vix_websocket
@@ -218,6 +269,15 @@ else()
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
+
+  # Treat Boost headers as SYSTEM (avoid third-party warnings)
+  if (_vix_boost_includes)
+    target_include_directories(vix_websocket SYSTEM INTERFACE ${_vix_boost_includes})
+  endif()
+
+  if (TARGET Boost::boost)
+    target_link_libraries(vix_websocket INTERFACE Boost::boost)
+  endif()
 
   target_link_libraries(vix_websocket INTERFACE
     ${VIX_CORE_TARGET}
