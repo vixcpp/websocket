@@ -171,8 +171,7 @@ namespace vix::websocket
 
   void Session::cancel_idle_timer()
   {
-    boost::system::error_code ec;
-    idleTimer_.cancel(ec);
+    idleTimer_.cancel();
   }
 
   void Session::on_idle_timeout(const boost::system::error_code &ec)
