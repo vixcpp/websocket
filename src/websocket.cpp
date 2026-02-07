@@ -123,7 +123,7 @@ namespace vix::websocket
       throw std::system_error(ec, "bind acceptor");
     }
 
-    acceptor_->listen(boost::asio::socket_base::max_connections, ec);
+    acceptor_->listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec)
       throw std::system_error(ec, "listen acceptor");
   }
