@@ -176,20 +176,39 @@ if (WEBSOCKET_SOURCES)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
-  # SQLite
-  find_package(SQLite3 REQUIRED)
+  # SQLite (required for websocket storage)
+  # vcpkg exposes: unofficial-sqlite3::sqlite3
+  # other platforms may use FindSQLite3 (SQLite::SQLite3)
+  set(_vix_sqlite_target "")
 
-  # Normalize to SQLite::SQLite3 everywhere
-  if (TARGET SQLite::SQLite3)
-    # ok
-  elseif (TARGET SQLite3::SQLite3)
-    add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
-  elseif (TARGET sqlite3)
-    add_library(SQLite::SQLite3 ALIAS sqlite3)
+  find_package(unofficial-sqlite3 CONFIG QUIET)
+  if (unofficial-sqlite3_FOUND AND TARGET unofficial-sqlite3::sqlite3)
+    message(STATUS "[websocket] SQLite3 found (vcpkg): unofficial-sqlite3::sqlite3")
+    set(_vix_sqlite_target unofficial-sqlite3::sqlite3)
+  else()
+    find_package(SQLite3 QUIET)
+
+    if (SQLite3_FOUND)
+      # Normalize to SQLite::SQLite3 everywhere
+      if (TARGET SQLite::SQLite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      elseif (TARGET SQLite3::SQLite3)
+        add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      elseif (TARGET sqlite3)
+        add_library(SQLite::SQLite3 ALIAS sqlite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      endif()
+
+      message(STATUS "[websocket] SQLite3 found (FindSQLite3): ${_vix_sqlite_target}")
+    endif()
   endif()
 
-  if (NOT TARGET SQLite::SQLite3)
-    message(FATAL_ERROR "[websocket] SQLite requested but no usable SQLite target was found.")
+  if (NOT _vix_sqlite_target)
+    message(FATAL_ERROR
+      "[websocket] SQLite3 not found.\n"
+      "hint(vcpkg): vcpkg install sqlite3\n"
+      "hint: or provide SQLite3_INCLUDE_DIR / SQLite3_LIBRARY.\n")
   endif()
 
   # includes
@@ -214,7 +233,7 @@ if (WEBSOCKET_SOURCES)
     PUBLIC
       ${VIX_CORE_TARGET}
       ${VIX_UTILS_TARGET}
-      SQLite::SQLite3
+      ${_vix_sqlite_target}
   )
 
   if (TARGET vix_warnings)
