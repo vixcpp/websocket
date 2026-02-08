@@ -57,7 +57,13 @@ namespace vix::websocket
 
     if (cfg_.enablePerMessageDeflate)
     {
-      ws_.set_option(ws::permessage_deflate(true));
+      ws::permessage_deflate opt;
+      opt.client_enable = true;
+      opt.server_enable = true;
+
+      opt.compLevel = 3;
+
+      ws_.set_option(opt);
     }
 
     if (cfg_.autoPingPong)
@@ -165,8 +171,7 @@ namespace vix::websocket
 
   void Session::cancel_idle_timer()
   {
-    boost::system::error_code ec;
-    idleTimer_.cancel(ec);
+    idleTimer_.cancel();
   }
 
   void Session::on_idle_timeout(const boost::system::error_code &ec)

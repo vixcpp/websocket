@@ -126,6 +126,47 @@ function(vix_websocket_try_link_json onto link_scope)
   endif()
 endfunction()
 
+# Boost (public headers use Boost.Beast via core; make sure includes are SYSTEM to avoid 3rd-party warnings)
+set(VIX_WEBSOCKET_WITH_BOOST "ON" CACHE STRING "Use Boost (ON|OFF)")
+set_property(CACHE VIX_WEBSOCKET_WITH_BOOST PROPERTY STRINGS ON OFF)
+
+set(_vix_boost_includes "")
+
+if (VIX_WEBSOCKET_WITH_BOOST STREQUAL "ON")
+  set(Boost_NO_WARN_NEW_VERSIONS ON)
+
+  find_package(Boost CONFIG QUIET)
+  if (Boost_FOUND)
+    message(STATUS "[websocket] Boost found (CONFIG)")
+  else()
+    message(STATUS "[websocket] Boost not found via CONFIG, using FindBoost")
+    find_package(Boost REQUIRED COMPONENTS system)
+  endif()
+
+  # Normalize headers target across toolchains
+  if (TARGET Boost::headers AND NOT TARGET Boost::boost)
+    add_library(Boost::boost ALIAS Boost::headers)
+  endif()
+
+  # FindBoost path
+  if (Boost_INCLUDE_DIRS)
+    list(APPEND _vix_boost_includes ${Boost_INCLUDE_DIRS})
+  endif()
+
+  # CONFIG target path
+  if (TARGET Boost::boost)
+    get_target_property(_boost_target_includes Boost::boost INTERFACE_INCLUDE_DIRECTORIES)
+    if (_boost_target_includes)
+      list(APPEND _vix_boost_includes ${_boost_target_includes})
+    endif()
+  endif()
+
+  list(REMOVE_DUPLICATES _vix_boost_includes)
+else()
+  message(FATAL_ERROR "[websocket] Boost is required. Set VIX_WEBSOCKET_WITH_BOOST=ON.")
+endif()
+
+
 # STATIC
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
@@ -135,20 +176,39 @@ if (WEBSOCKET_SOURCES)
   add_library(vix::ws ALIAS vix_websocket)
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
-  # SQLite
-  find_package(SQLite3 REQUIRED)
+  # SQLite (required for websocket storage)
+  # vcpkg exposes: unofficial-sqlite3::sqlite3
+  # other platforms may use FindSQLite3 (SQLite::SQLite3)
+  set(_vix_sqlite_target "")
 
-  # Normalize to SQLite::SQLite3 everywhere
-  if (TARGET SQLite::SQLite3)
-    # ok
-  elseif (TARGET SQLite3::SQLite3)
-    add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
-  elseif (TARGET sqlite3)
-    add_library(SQLite::SQLite3 ALIAS sqlite3)
+  find_package(unofficial-sqlite3 CONFIG QUIET)
+  if (unofficial-sqlite3_FOUND AND TARGET unofficial-sqlite3::sqlite3)
+    message(STATUS "[websocket] SQLite3 found (vcpkg): unofficial-sqlite3::sqlite3")
+    set(_vix_sqlite_target unofficial-sqlite3::sqlite3)
+  else()
+    find_package(SQLite3 QUIET)
+
+    if (SQLite3_FOUND)
+      # Normalize to SQLite::SQLite3 everywhere
+      if (TARGET SQLite::SQLite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      elseif (TARGET SQLite3::SQLite3)
+        add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      elseif (TARGET sqlite3)
+        add_library(SQLite::SQLite3 ALIAS sqlite3)
+        set(_vix_sqlite_target SQLite::SQLite3)
+      endif()
+
+      message(STATUS "[websocket] SQLite3 found (FindSQLite3): ${_vix_sqlite_target}")
+    endif()
   endif()
 
-  if (NOT TARGET SQLite::SQLite3)
-    message(FATAL_ERROR "[websocket] SQLite requested but no usable SQLite target was found.")
+  if (NOT _vix_sqlite_target)
+    message(FATAL_ERROR
+      "[websocket] SQLite3 not found.\n"
+      "hint(vcpkg): vcpkg install sqlite3\n"
+      "hint: or provide SQLite3_INCLUDE_DIR / SQLite3_LIBRARY.\n")
   endif()
 
   # includes
@@ -158,12 +218,22 @@ if (WEBSOCKET_SOURCES)
       $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
 
+  # Treat Boost headers as SYSTEM (avoid third-party warnings)
+  if (_vix_boost_includes)
+    target_include_directories(vix_websocket SYSTEM PUBLIC ${_vix_boost_includes})
+  endif()
+
+  # Ensure Boost::boost exists/linked if available
+  if (TARGET Boost::boost)
+    target_link_libraries(vix_websocket PUBLIC Boost::boost)
+  endif()
+
   # link deps
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
       ${VIX_UTILS_TARGET}
-      SQLite::SQLite3
+      ${_vix_sqlite_target}
   )
 
   if (TARGET vix_warnings)
@@ -218,6 +288,15 @@ else()
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
+
+  # Treat Boost headers as SYSTEM (avoid third-party warnings)
+  if (_vix_boost_includes)
+    target_include_directories(vix_websocket SYSTEM INTERFACE ${_vix_boost_includes})
+  endif()
+
+  if (TARGET Boost::boost)
+    target_link_libraries(vix_websocket INTERFACE Boost::boost)
+  endif()
 
   target_link_libraries(vix_websocket INTERFACE
     ${VIX_CORE_TARGET}
