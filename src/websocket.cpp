@@ -79,7 +79,7 @@ namespace vix::websocket
     const int port = coreConfig_.getInt("websocket.port", 9090);
     if (port < 1024 || port > 65535)
     {
-      logger.log(Logger::Level::ERROR,
+      logger.log(Logger::Level::Error,
                  "[ws] port out of range (1024-65535): {}", port);
       throw std::invalid_argument("Invalid WebSocket port");
     }
@@ -87,7 +87,7 @@ namespace vix::websocket
     init_acceptor(static_cast<unsigned short>(port));
 
     logger.log(
-        Logger::Level::DEBUG,
+        Logger::Level::Debug,
         "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
         wsConfig_.maxMessageSize,
         wsConfig_.idleTimeout.count(),
@@ -150,7 +150,7 @@ namespace vix::websocket
           }
           else if (ec && !stopRequested_.load(std::memory_order_relaxed))
           {
-            logger.log(Logger::Level::DEBUG, "[ws] accept error ({})", ec.message());
+            logger.log(Logger::Level::Debug, "[ws] accept error ({})", ec.message());
           }
 
           if (!stopRequested_.load(std::memory_order_relaxed))
@@ -179,11 +179,11 @@ namespace vix::websocket
             }
             catch (const std::exception &e)
             {
-                logger.log(Logger::Level::ERROR,
+                logger.log(Logger::Level::Error,
                             "[ws] io thread {} error ({})", i, e.what());
             }
 
-            logger.log(Logger::Level::DEBUG,
+            logger.log(Logger::Level::Debug,
                         "[ws] io thread {} finished", i); });
     }
   }
