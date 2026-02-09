@@ -133,7 +133,7 @@ namespace vix::websocket
       if (ec)
         throw std::system_error(ec, "listen");
 
-      log.log(vix::utils::Logger::Level::INFO,
+      log.log(vix::utils::Logger::Level::Info,
               "[ws] metrics listening {}:{}  (GET /metrics)",
               address, port);
 
@@ -143,7 +143,7 @@ namespace vix::websocket
         acceptor.accept(socket, ec);
         if (ec)
         {
-          log.log(vix::utils::Logger::Level::DEBUG,
+          log.log(vix::utils::Logger::Level::Debug,
                   "[ws] metrics accept error ({})",
                   ec.message());
           continue;
@@ -155,7 +155,7 @@ namespace vix::websocket
 
         if (ec)
         {
-          log.log(vix::utils::Logger::Level::DEBUG,
+          log.log(vix::utils::Logger::Level::Debug,
                   "[ws] metrics read error ({})",
                   ec.message());
           boost::system::error_code ignore;
@@ -186,7 +186,7 @@ namespace vix::websocket
         http::write(socket, res, ec);
         if (ec)
         {
-          log.log(vix::utils::Logger::Level::DEBUG,
+          log.log(vix::utils::Logger::Level::Debug,
                   "[ws] metrics write error ({})",
                   ec.message());
         }
@@ -198,7 +198,7 @@ namespace vix::websocket
     }
     catch (const std::exception &e)
     {
-      log.log(vix::utils::Logger::Level::ERROR,
+      log.log(vix::utils::Logger::Level::Error,
               "[ws] metrics server error ({})",
               e.what());
     }

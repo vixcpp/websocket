@@ -168,7 +168,7 @@ namespace vix::websocket
      */
     void start()
     {
-      vix::utils::Logger::getInstance().log(vix::utils::Logger::Level::INFO,
+      vix::utils::Logger::getInstance().log(vix::utils::Logger::Level::Info,
                                             "[ws] start() called on port {}", port());
       engine_.run();
     }

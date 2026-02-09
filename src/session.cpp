@@ -94,13 +94,13 @@ namespace vix::websocket
   {
     if (ec)
     {
-      logger.log(Logger::Level::ERROR, "[ws] accept failed ({})", ec.message());
+      logger.log(Logger::Level::Error, "[ws] accept failed ({})", ec.message());
       if (router_)
         router_->handle_error(*this, ec);
       return;
     }
 
-    logger.log(Logger::Level::INFO, "[ws] connected");
+    logger.log(Logger::Level::Info, "[ws] connected");
 
     if (router_)
       router_->handle_open(*this);
@@ -128,11 +128,11 @@ namespace vix::websocket
       }
       else if (is_normal_disconnect(ec))
       {
-        logger.log(Logger::Level::DEBUG, "[ws] disconnected ({})", ec.message());
+        logger.log(Logger::Level::Debug, "[ws] disconnected ({})", ec.message());
       }
       else
       {
-        logger.log(Logger::Level::WARN, "[ws] read error ({})", ec.message());
+        logger.log(Logger::Level::Warn, "[ws] read error ({})", ec.message());
       }
 
       if (router_)
@@ -141,7 +141,7 @@ namespace vix::websocket
       return;
     }
 
-    logger.log(Logger::Level::DEBUG, "[ws] recv bytes={}", bytes);
+    logger.log(Logger::Level::Debug, "[ws] recv bytes={}", bytes);
 
     auto data = beast::buffers_to_string(buffer_.data());
     buffer_.consume(buffer_.size());
@@ -181,11 +181,11 @@ namespace vix::websocket
 
     if (ec)
     {
-      logger.log(Logger::Level::WARN, "[ws] idle timer error ({})", ec.message());
+      logger.log(Logger::Level::Warn, "[ws] idle timer error ({})", ec.message());
       return;
     }
 
-    logger.log(Logger::Level::INFO, "[ws] disconnected (idle timeout)");
+    logger.log(Logger::Level::Info, "[ws] disconnected (idle timeout)");
     close(ws::close_reason(ws::close_code::normal));
   }
 
@@ -274,11 +274,11 @@ namespace vix::websocket
       }
       else if (is_normal_disconnect(ec))
       {
-        logger.log(Logger::Level::DEBUG, "[ws] disconnected ({})", ec.message());
+        logger.log(Logger::Level::Debug, "[ws] disconnected ({})", ec.message());
       }
       else
       {
-        logger.log(Logger::Level::WARN, "[ws] write error ({})", ec.message());
+        logger.log(Logger::Level::Warn, "[ws] write error ({})", ec.message());
       }
 
       closing_ = true;
@@ -287,7 +287,7 @@ namespace vix::websocket
       return;
     }
 
-    logger.log(Logger::Level::DEBUG, "[ws] sent bytes={}", bytes);
+    logger.log(Logger::Level::Debug, "[ws] sent bytes={}", bytes);
     do_write_next();
   }
 
@@ -308,11 +308,11 @@ namespace vix::websocket
           }
           else if (!ec || is_normal_disconnect(ec))
           {
-              logger.log(Logger::Level::DEBUG, "[ws] disconnected ({})", ec.message());
+              logger.log(Logger::Level::Debug, "[ws] disconnected ({})", ec.message());
           }
           else
           {
-              logger.log(Logger::Level::WARN, "[ws] close error ({})", ec.message());
+              logger.log(Logger::Level::Warn, "[ws] close error ({})", ec.message());
           }
 
           if (router_)
