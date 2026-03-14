@@ -1,0 +1,29 @@
+{
+  "name": "websocket",
+  "namespace": "vix",
+  "version": "0.1.0",
+  "type": "header-and-source",
+  "include": "include",
+  "src": "src",
+  "license": "MIT",
+  "description": "WebSocket runtime and utilities for Vix.cpp: client/server, long-polling, message store, metrics, session and router handling.",
+  "keywords": [
+    "cpp",
+    "vix",
+    "websocket",
+    "client",
+    "server",
+    "long-polling",
+    "message-store",
+    "metrics",
+    "router",
+    "session"
+  ],
+  "repository": "https://github.com/vixcpp/websocket",
+  "authors": [
+    {
+      "name": "Gaspard Kirira",
+      "github": "Gaspardkirira"
+    }
+  ]
+}
