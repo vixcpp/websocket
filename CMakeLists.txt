@@ -44,24 +44,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Sources discovery
-file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB_RECURSE WEBSOCKET_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+)
 
 # Core dependency
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
 
-if (NOT TARGET vix::core)
+if (NOT TARGET vix::core AND NOT TARGET vix_core)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../core/CMakeLists.txt")
     message(STATUS "[websocket] Adding core from umbrella: ../core")
-    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../core" "core")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../core" "${CMAKE_CURRENT_BINARY_DIR}/core")
   elseif (VIX_WEBSOCKET_FETCH_CORE)
     include(FetchContent)
     message(STATUS "[websocket] Fetching vix::core via FetchContent")
-    FetchContent_Declare(vix_core
+    FetchContent_Declare(vix_core_ext
       GIT_REPOSITORY https://github.com/vixcpp/core.git
       GIT_TAG        dev
     )
-    FetchContent_MakeAvailable(vix_core)
+    FetchContent_MakeAvailable(vix_core_ext)
   else()
     message(FATAL_ERROR
       "vix::core not found. Provide vix::core before websocket "
@@ -70,18 +72,18 @@ if (NOT TARGET vix::core)
 endif()
 
 # Utils dependency
-if (NOT TARGET vix::utils)
+if (NOT TARGET vix::utils AND NOT TARGET vix_utils)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
     message(STATUS "[websocket] Adding utils from umbrella: ../utils")
-    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "${CMAKE_CURRENT_BINARY_DIR}/utils")
   elseif (VIX_WEBSOCKET_FETCH_UTILS)
     include(FetchContent)
     message(STATUS "[websocket] Fetching vix::utils via FetchContent")
-    FetchContent_Declare(vix_utils
+    FetchContent_Declare(vix_utils_ext
       GIT_REPOSITORY https://github.com/vixcpp/utils.git
       GIT_TAG        dev
     )
-    FetchContent_MakeAvailable(vix_utils)
+    FetchContent_MakeAvailable(vix_utils_ext)
   else()
     message(FATAL_ERROR
       "vix::utils not found. Provide vix::utils before websocket "
@@ -89,8 +91,21 @@ if (NOT TARGET vix::utils)
   endif()
 endif()
 
-set(VIX_CORE_TARGET vix::core)
-set(VIX_UTILS_TARGET vix::utils)
+if (TARGET vix::core)
+  set(VIX_CORE_TARGET vix::core)
+elseif (TARGET vix_core)
+  set(VIX_CORE_TARGET vix_core)
+else()
+  message(FATAL_ERROR "[websocket] Core dependency resolution finished but no usable core target was found.")
+endif()
+
+if (TARGET vix::utils)
+  set(VIX_UTILS_TARGET vix::utils)
+elseif (TARGET vix_utils)
+  set(VIX_UTILS_TARGET vix_utils)
+else()
+  message(FATAL_ERROR "[websocket] Utils dependency resolution finished but no usable utils target was found.")
+endif()
 
 # JSON linkage policy
 set(VIX_WEBSOCKET_WITH_JSON "AUTO" CACHE STRING "Link JSON backend (AUTO|ON|OFF)")
@@ -126,54 +141,20 @@ function(vix_websocket_try_link_json onto link_scope)
   endif()
 endfunction()
 
-# Boost (public headers use Boost.Beast via core; make sure includes are SYSTEM to avoid 3rd-party warnings)
-set(VIX_WEBSOCKET_WITH_BOOST "ON" CACHE STRING "Use Boost (ON|OFF)")
-set_property(CACHE VIX_WEBSOCKET_WITH_BOOST PROPERTY STRINGS ON OFF)
-
-set(_vix_boost_includes "")
-
-if (VIX_WEBSOCKET_WITH_BOOST STREQUAL "ON")
-  set(Boost_NO_WARN_NEW_VERSIONS ON)
-
-  find_package(Boost CONFIG QUIET)
-  if (Boost_FOUND)
-    message(STATUS "[websocket] Boost found (CONFIG)")
-  else()
-    message(STATUS "[websocket] Boost not found via CONFIG, using FindBoost")
-    find_package(Boost REQUIRED COMPONENTS system)
-  endif()
-
-  # Normalize headers target across toolchains
-  if (TARGET Boost::headers AND NOT TARGET Boost::boost)
-    add_library(Boost::boost ALIAS Boost::headers)
-  endif()
-
-  # FindBoost path
-  if (Boost_INCLUDE_DIRS)
-    list(APPEND _vix_boost_includes ${Boost_INCLUDE_DIRS})
-  endif()
-
-  # CONFIG target path
-  if (TARGET Boost::boost)
-    get_target_property(_boost_target_includes Boost::boost INTERFACE_INCLUDE_DIRECTORIES)
-    if (_boost_target_includes)
-      list(APPEND _vix_boost_includes ${_boost_target_includes})
-    endif()
-  endif()
-
-  list(REMOVE_DUPLICATES _vix_boost_includes)
-else()
-  message(FATAL_ERROR "[websocket] Boost is required. Set VIX_WEBSOCKET_WITH_BOOST=ON.")
-endif()
-
-
 # STATIC
 if (WEBSOCKET_SOURCES)
   message(STATUS "[websocket] Building STATIC library with detected sources.")
 
   add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
-  add_library(vix::websocket ALIAS vix_websocket)
-  add_library(vix::ws ALIAS vix_websocket)
+
+  if (NOT TARGET vix::websocket)
+    add_library(vix::websocket ALIAS vix_websocket)
+  endif()
+
+  if (NOT TARGET vix::ws)
+    add_library(vix::ws ALIAS vix_websocket)
+  endif()
+
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
   # SQLite (required for websocket storage)
@@ -189,14 +170,17 @@ if (WEBSOCKET_SOURCES)
     find_package(SQLite3 QUIET)
 
     if (SQLite3_FOUND)
-      # Normalize to SQLite::SQLite3 everywhere
       if (TARGET SQLite::SQLite3)
         set(_vix_sqlite_target SQLite::SQLite3)
       elseif (TARGET SQLite3::SQLite3)
-        add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
+        if (NOT TARGET SQLite::SQLite3)
+          add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
+        endif()
         set(_vix_sqlite_target SQLite::SQLite3)
       elseif (TARGET sqlite3)
-        add_library(SQLite::SQLite3 ALIAS sqlite3)
+        if (NOT TARGET SQLite::SQLite3)
+          add_library(SQLite::SQLite3 ALIAS sqlite3)
+        endif()
         set(_vix_sqlite_target SQLite::SQLite3)
       endif()
 
@@ -211,24 +195,12 @@ if (WEBSOCKET_SOURCES)
       "hint: or provide SQLite3_INCLUDE_DIR / SQLite3_LIBRARY.\n")
   endif()
 
-  # includes
   target_include_directories(vix_websocket
     PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
 
-  # Treat Boost headers as SYSTEM (avoid third-party warnings)
-  if (_vix_boost_includes)
-    target_include_directories(vix_websocket SYSTEM PUBLIC ${_vix_boost_includes})
-  endif()
-
-  # Ensure Boost::boost exists/linked if available
-  if (TARGET Boost::boost)
-    target_link_libraries(vix_websocket PUBLIC Boost::boost)
-  endif()
-
-  # link deps
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
@@ -267,13 +239,21 @@ if (WEBSOCKET_SOURCES)
       PATTERN "*.h"
       PATTERN "*.inc"
   )
+
 # HEADER-ONLY
 else()
   message(STATUS "[websocket] Building HEADER-ONLY library (no sources).")
 
   add_library(vix_websocket INTERFACE)
-  add_library(vix::websocket ALIAS vix_websocket)
-  add_library(vix::ws ALIAS vix_websocket)
+
+  if (NOT TARGET vix::websocket)
+    add_library(vix::websocket ALIAS vix_websocket)
+  endif()
+
+  if (NOT TARGET vix::ws)
+    add_library(vix::ws ALIAS vix_websocket)
+  endif()
+
   target_compile_features(vix_websocket INTERFACE cxx_std_20)
 
   if (TARGET vix_warnings)
@@ -289,15 +269,6 @@ else()
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
 
-  # Treat Boost headers as SYSTEM (avoid third-party warnings)
-  if (_vix_boost_includes)
-    target_include_directories(vix_websocket SYSTEM INTERFACE ${_vix_boost_includes})
-  endif()
-
-  if (TARGET Boost::boost)
-    target_link_libraries(vix_websocket INTERFACE Boost::boost)
-  endif()
-
   target_link_libraries(vix_websocket INTERFACE
     ${VIX_CORE_TARGET}
     ${VIX_UTILS_TARGET}
@@ -309,8 +280,12 @@ else()
     EXPORT VixTargets
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
+
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-          FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
+    FILES_MATCHING
+      PATTERN "*.hpp"
+      PATTERN "*.h"
+  )
 endif()
 
 # Examples (optional)
