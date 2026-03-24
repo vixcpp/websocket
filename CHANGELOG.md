@@ -6,71 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+## [1.11.0] - 2026-03-24
+
+- Refactored WebSocket module to use native vix::vhttp layer
+- Removed implicit dependencies on Boost-based HTTP internals
+- Updated server, client and session implementations to new core API
+- Simplified protocol handling and routing integration
+- Improved internal consistency with vix::async runtime
+- Updated OpenAPI WebSocket documentation integration
+
+Changes:
+- WebSocket now runs fully on top of the new Vix HTTP stack
+- Internal APIs aligned with Request / ResponseWrapper model
+- Examples updated to reflect new architecture
+
+This release aligns the WebSocket module with Vix v2 core
+and completes the transition away from Boost-based internals.
+
 ## [1.3.1] - 2026-01-02
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 ## [1.3.0] - 2026-01-02
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 ## [1.2.0] - 2025-12-23
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 ## [1.1.2] - 2025-12-17
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 ## [1.1.1] - 2025-12-14
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 ## [1.1.0] - 2025-12-11
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Removed
-- 
+-
 
 
 websocket: introduce runtime layer and refresh examples

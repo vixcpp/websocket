@@ -14,38 +14,42 @@
 #ifndef VIX_WEBSOCKET_SESSION_HPP
 #define VIX_WEBSOCKET_SESSION_HPP
 
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <chrono>
 #include <vector>
-#include <deque>
 
-#include <boost/beast/core.hpp>
-#include <boost/beast/websocket.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/steady_timer.hpp>
-#include <boost/system/error_code.hpp>
-
-#include <vix/websocket/config.hpp>
-#include <vix/websocket/router.hpp>
+#include <vix/async/core/cancel.hpp>
+#include <vix/async/core/io_context.hpp>
+#include <vix/async/core/task.hpp>
+#include <vix/async/net/tcp.hpp>
 #include <vix/executor/IExecutor.hpp>
 #include <vix/utils/Logger.hpp>
+#include <vix/websocket/config.hpp>
+#include <vix/websocket/protocol.hpp>
+#include <vix/websocket/router.hpp>
 
 namespace vix::websocket
 {
-  namespace beast = boost::beast;
-  namespace ws = boost::beast::websocket;
-  namespace net = boost::asio;
+  using vix::async::core::cancel_source;
+  using vix::async::core::io_context;
+  using vix::async::core::task;
+  using vix::async::net::tcp_stream;
 
   /**
    * @brief Represents a single WebSocket connection.
    *
-   * A Session owns the Beast WebSocket stream, manages async read/write,
-   * idle timeouts, and dispatches events to the Router.
+   * A Session owns a native Vix TCP stream, manages:
+   * - HTTP Upgrade handshake
+   * - async frame read/write
+   * - idle timeout
+   * - dispatch to the WebSocket Router
    *
-   * Each session is reference-counted and lives as long as there are
-   * outstanding async operations.
+   * This version is independent of Boost.Beast / Boost.Asio.
    */
   class Session : public std::enable_shared_from_this<Session>
   {
@@ -53,13 +57,13 @@ namespace vix::websocket
     /**
      * @brief Construct a WebSocket session.
      *
-     * @param socket Accepted TCP socket.
+     * @param stream Accepted native TCP stream.
      * @param cfg WebSocket runtime configuration.
      * @param router Event router for open/close/message/error callbacks.
      * @param executor Executor used for async continuations.
      */
     Session(
-        net::ip::tcp::socket socket,
+        std::unique_ptr<tcp_stream> stream,
         const Config &cfg,
         std::shared_ptr<Router> router,
         std::shared_ptr<vix::executor::IExecutor> executor);
@@ -67,7 +71,7 @@ namespace vix::websocket
     ~Session() = default;
 
     /** @brief Start the WebSocket handshake and begin IO. */
-    void run();
+    task<void> run();
 
     /** @brief Send a text frame to the client. */
     void send_text(std::string_view text);
@@ -76,57 +80,95 @@ namespace vix::websocket
     void send_binary(const void *data, std::size_t size);
 
     /** @brief Close the session with an optional close reason. */
-    void close(ws::close_reason reason = ws::close_reason{});
+    void close(std::string reason = {});
+
+    /** @brief Return true if the session is currently open. */
+    bool is_open() const noexcept
+    {
+      return open_;
+    }
+
+    void emit_error(const std::string &message);
 
   private:
-    /** @brief Perform the WebSocket accept/handshake. */
-    void do_accept();
+    /** @brief Perform the HTTP Upgrade handshake. */
+    task<void> do_accept();
 
-    /** @brief Accept completion handler. */
-    void on_accept(const boost::system::error_code &ec);
+    /** @brief Start the frame read loop. */
+    task<void> do_read_loop();
 
-    /** @brief Start an async read operation. */
-    void do_read();
+    /** @brief Read one WebSocket frame. */
+    task<detail::Frame> read_frame();
 
-    /** @brief Read completion handler. */
-    void on_read(const boost::system::error_code &ec, std::size_t bytes);
-
-    /** @brief Arm the idle timeout timer. */
+    /** @brief Arm the idle timeout scope. */
     void arm_idle_timer();
 
-    /** @brief Cancel the idle timeout timer. */
+    /** @brief Cancel the idle timeout scope. */
     void cancel_idle_timer();
 
-    /** @brief Idle timeout handler. */
-    void on_idle_timeout(const boost::system::error_code &ec);
-
-    /** @brief Write completion handler. */
-    void on_write_complete(const boost::system::error_code &ec, std::size_t bytes);
-
-  private:
-    ws::stream<net::ip::tcp::socket> ws_;
-    Config cfg_;
-    std::shared_ptr<Router> router_;
-    std::shared_ptr<vix::executor::IExecutor> executor_;
-    beast::flat_buffer buffer_;
-    net::steady_timer idleTimer_;
-    bool closing_ = false;
-
-    /** @brief Pending outgoing message descriptor. */
-    struct PendingMessage
-    {
-      bool isBinary;
-      std::string data;
-    };
-
-    std::deque<PendingMessage> writeQueue_;
-    bool writeInProgress_ = false;
+    /** @brief Handle idle timeout expiry. */
+    task<void> on_idle_timeout();
 
     /** @brief Enqueue an outgoing message. */
     void do_enqueue_message(bool isBinary, std::string payload);
 
     /** @brief Write the next queued message if any. */
-    void do_write_next();
+    task<void> do_write_next();
+
+    /** @brief Flush queued outgoing messages. */
+    void trigger_write_flush();
+
+    /** @brief Write one raw frame to the stream. */
+    task<void> write_raw_frame(const std::vector<std::byte> &frame);
+
+    /** @brief Read one HTTP request head for the Upgrade request. */
+    task<std::string> read_http_head();
+
+    /** @brief Ensure at least n bytes exist in the internal read buffer. */
+    task<void> ensure_bytes(std::size_t n);
+
+    /** @brief Send the HTTP Upgrade success response. */
+    task<void> send_upgrade_response(const std::string &accept_key);
+
+    /** @brief Close only the underlying TCP stream. */
+    task<void> close_stream_only();
+
+    /** @brief Start ping heartbeat if enabled by config. */
+    void maybe_start_heartbeat();
+
+    /** @brief Stop ping heartbeat. */
+    void stop_heartbeat();
+
+  private:
+    std::unique_ptr<tcp_stream> stream_;
+    Config cfg_;
+    std::shared_ptr<Router> router_;
+    std::shared_ptr<vix::executor::IExecutor> executor_;
+
+    std::shared_ptr<io_context> ioc_{};
+    std::string readBuffer_{};
+
+    bool closing_{false};
+    bool open_{false};
+
+    cancel_source idleCancel_{};
+    cancel_source readCancel_{};
+    cancel_source writeCancel_{};
+    cancel_source closeCancel_{};
+
+    std::thread heartbeatThread_{};
+    bool heartbeatStop_{false};
+
+    /** @brief Pending outgoing message descriptor. */
+    struct PendingMessage
+    {
+      bool isBinary{false};
+      std::string data{};
+    };
+
+    std::deque<PendingMessage> writeQueue_{};
+    bool writeInProgress_{false};
+    std::mutex writeMutex_{};
   };
 
 } // namespace vix::websocket

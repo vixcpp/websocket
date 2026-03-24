@@ -6,35 +6,21 @@
 #  Use of this source code is governed by a MIT license
 #  that can be found in the License file.
 #
-#  Vix.cpp
-# Modules - websocket
-# Purpose:
-#   Build configuration for the Vix WebSocket module:
-#   - Upgrades HTTP connections from vix::core to WebSocket
-#   - Provides real-time streaming primitives (channels, broadcasts,
-#     chat-style messaging, notifications, dashboards, IoT streams, ...)
+# ====================================================================
+# Vix.cpp — Middleware Module (Core HTTP only)
+# ====================================================================
+# Required:
+#   - vix::core
+#   - vix::cache
 #
-# Public Targets:
-#   - vix_websocket   : The actual library target (STATIC or INTERFACE)
-#   - vix::websocket  : Namespaced alias for consumers
-#
-# Public Dependencies:
-#   - vix::core   (HTTP server, routing, config)
-#   - vix::utils  (logging, small helpers)
-#   - optional JSON backend (vix::json / vix_json)
-#
-# Options:
-#   - VIX_WEBSOCKET_WITH_JSON  : AUTO|ON|OFF (default: AUTO)
-#   - VIX_WEBSOCKET_FETCH_CORE : Auto-fetch vix::core if missing (default ON)
-#   - VIX_WEBSOCKET_FETCH_UTILS: Auto-fetch vix::utils if missing (default ON)
-#
-# Installation/Export:
-#   - Contributes to the umbrella export-set `VixTargets`
-#   - Headers installed under <prefix>/include/vix/websocket/...
+# Optional:
+#   - vix::utils (AUTO|ON|OFF)
+#   - JSON backend (AUTO|ON|OFF): vix::json or vix_json
 # ====================================================================
 
 cmake_minimum_required(VERSION 3.20)
-project(vix_websocket VERSION 1.1.0 LANGUAGES CXX)
+project(vix_middleware VERSION 1.0.0 LANGUAGES CXX)
+set(CMAKE_DISABLE_FIND_PACKAGE_VixOrm ON)
 
 include(GNUInstallDirs)
 
@@ -44,62 +30,100 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Sources discovery
-file(GLOB_RECURSE WEBSOCKET_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB_RECURSE MIDDLEWARE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Core dependency
-option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
-option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
+option(VIX_MW_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 
 if (NOT TARGET vix::core)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../core/CMakeLists.txt")
-    message(STATUS "[websocket] Adding core from umbrella: ../core")
+    message(STATUS "[middleware] Adding core from umbrella: ../core")
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../core" "core")
-  elseif (VIX_WEBSOCKET_FETCH_CORE)
+  elseif (VIX_MW_FETCH_CORE)
     include(FetchContent)
-    message(STATUS "[websocket] Fetching vix::core via FetchContent")
+    message(STATUS "[middleware] Fetching vix::core via FetchContent")
     FetchContent_Declare(vix_core
       GIT_REPOSITORY https://github.com/vixcpp/core.git
       GIT_TAG        dev
     )
     FetchContent_MakeAvailable(vix_core)
   else()
-    message(FATAL_ERROR
-      "vix::core not found. Provide vix::core before websocket "
-      "or enable VIX_WEBSOCKET_FETCH_CORE=ON.")
-  endif()
-endif()
-
-# Utils dependency
-if (NOT TARGET vix::utils)
-  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
-    message(STATUS "[websocket] Adding utils from umbrella: ../utils")
-    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
-  elseif (VIX_WEBSOCKET_FETCH_UTILS)
-    include(FetchContent)
-    message(STATUS "[websocket] Fetching vix::utils via FetchContent")
-    FetchContent_Declare(vix_utils
-      GIT_REPOSITORY https://github.com/vixcpp/utils.git
-      GIT_TAG        dev
-    )
-    FetchContent_MakeAvailable(vix_utils)
-  else()
-    message(FATAL_ERROR
-      "vix::utils not found. Provide vix::utils before websocket "
-      "or enable VIX_WEBSOCKET_FETCH_UTILS=ON.")
+    message(FATAL_ERROR "vix::core not found. Provide it or enable VIX_MW_FETCH_CORE=ON.")
   endif()
 endif()
 
 set(VIX_CORE_TARGET vix::core)
-set(VIX_UTILS_TARGET vix::utils)
 
-# JSON linkage policy
-set(VIX_WEBSOCKET_WITH_JSON "AUTO" CACHE STRING "Link JSON backend (AUTO|ON|OFF)")
-set_property(CACHE VIX_WEBSOCKET_WITH_JSON PROPERTY STRINGS AUTO ON OFF)
+# Required: Cache
+option(VIX_MW_FETCH_CACHE "Auto-fetch vix::cache if missing" ON)
 
-function(vix_websocket_try_link_json onto link_scope)
-  if (VIX_WEBSOCKET_WITH_JSON STREQUAL "OFF")
-    message(STATUS "[websocket] JSON disabled (OFF)")
-    target_compile_definitions(${onto} ${link_scope} VIX_WEBSOCKET_NO_JSON=1)
+if (NOT TARGET vix::cache)
+  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../cache/CMakeLists.txt")
+    message(STATUS "[middleware] Adding cache from umbrella: ../cache")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../cache" "cache")
+  elseif (VIX_MW_FETCH_CACHE)
+    include(FetchContent)
+    message(STATUS "[middleware] Fetching vix::cache via FetchContent")
+    FetchContent_Declare(vix_cache
+      GIT_REPOSITORY https://github.com/vixcpp/cache.git
+      GIT_TAG        v0.1.0
+    )
+    FetchContent_MakeAvailable(vix_cache)
+  else()
+    message(FATAL_ERROR "vix::cache not found. Provide it or enable VIX_MW_FETCH_CACHE=ON.")
+  endif()
+endif()
+
+set(VIX_CACHE_TARGET vix::cache)
+
+# Optional: Utils
+set(VIX_MW_WITH_UTILS "AUTO" CACHE STRING "Link utils module (AUTO|ON|OFF)")
+set_property(CACHE VIX_MW_WITH_UTILS PROPERTY STRINGS AUTO ON OFF)
+option(VIX_MW_FETCH_UTILS "Auto-fetch vix::utils if missing (when needed)" ON)
+
+function(vix_mw_try_link_utils onto link_scope)
+  if (VIX_MW_WITH_UTILS STREQUAL "OFF")
+    message(STATUS "[middleware] Utils disabled (OFF)")
+    target_compile_definitions(${onto} ${link_scope} VIX_MW_NO_UTILS=1)
+    return()
+  endif()
+
+  if (NOT TARGET vix::utils)
+    if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
+      message(STATUS "[middleware] Adding utils from umbrella: ../utils")
+      add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "utils")
+    elseif (VIX_MW_FETCH_UTILS)
+      include(FetchContent)
+      message(STATUS "[middleware] Fetching vix::utils via FetchContent")
+      FetchContent_Declare(vix_utils
+        GIT_REPOSITORY https://github.com/vixcpp/utils.git
+        GIT_TAG        dev
+      )
+      FetchContent_MakeAvailable(vix_utils)
+    endif()
+  endif()
+
+  if (TARGET vix::utils)
+    message(STATUS "[middleware] Utils backend: vix::utils")
+    target_link_libraries(${onto} ${link_scope} vix::utils)
+    target_compile_definitions(${onto} ${link_scope} VIX_MW_WITH_UTILS=1)
+  else()
+    if (VIX_MW_WITH_UTILS STREQUAL "ON")
+      message(FATAL_ERROR "Utils required but vix::utils not found.")
+    else()
+      message(STATUS "[middleware] Utils not detected; building without utils.")
+      target_compile_definitions(${onto} ${link_scope} VIX_MW_NO_UTILS=1)
+    endif()
+  endif()
+endfunction()
+
+# Optional: JSON backend
+set(VIX_MW_WITH_JSON "AUTO" CACHE STRING "Link JSON backend (AUTO|ON|OFF)")
+set_property(CACHE VIX_MW_WITH_JSON PROPERTY STRINGS AUTO ON OFF)
+
+function(vix_mw_try_link_json onto link_scope)
+  if (VIX_MW_WITH_JSON STREQUAL "OFF")
+    message(STATUS "[middleware] JSON disabled (OFF)")
+    target_compile_definitions(${onto} ${link_scope} VIX_MW_NO_JSON=1)
     return()
   endif()
 
@@ -113,199 +137,100 @@ function(vix_websocket_try_link_json onto link_scope)
   endforeach()
 
   if (_json_found)
-    message(STATUS "[websocket] JSON backend: ${_json_found}")
+    message(STATUS "[middleware] JSON backend: ${_json_found}")
     target_link_libraries(${onto} ${link_scope} ${_json_found})
   else()
-    if (VIX_WEBSOCKET_WITH_JSON STREQUAL "ON")
-      message(FATAL_ERROR
-        "JSON required but not found (expected: vix::json or vix_json).")
+    if (VIX_MW_WITH_JSON STREQUAL "ON")
+      message(FATAL_ERROR "JSON required but not found (expected: vix::json or vix_json).")
     else()
-      message(STATUS "[websocket] No JSON backend detected; building without JSON.")
-      target_compile_definitions(${onto} ${link_scope} VIX_WEBSOCKET_NO_JSON=1)
+      message(STATUS "[middleware] No JSON backend detected; building without JSON.")
+      target_compile_definitions(${onto} ${link_scope} VIX_MW_NO_JSON=1)
     endif()
   endif()
 endfunction()
 
-# Boost (public headers use Boost.Beast via core; make sure includes are SYSTEM to avoid 3rd-party warnings)
-set(VIX_WEBSOCKET_WITH_BOOST "ON" CACHE STRING "Use Boost (ON|OFF)")
-set_property(CACHE VIX_WEBSOCKET_WITH_BOOST PROPERTY STRINGS ON OFF)
-
-set(_vix_boost_includes "")
-
-if (VIX_WEBSOCKET_WITH_BOOST STREQUAL "ON")
-  set(Boost_NO_WARN_NEW_VERSIONS ON)
-
-  find_package(Boost CONFIG QUIET)
-  if (Boost_FOUND)
-    message(STATUS "[websocket] Boost found (CONFIG)")
-  else()
-    message(STATUS "[websocket] Boost not found via CONFIG, using FindBoost")
-    find_package(Boost REQUIRED COMPONENTS system)
-  endif()
-
-  # Normalize headers target across toolchains
-  if (TARGET Boost::headers AND NOT TARGET Boost::boost)
-    add_library(Boost::boost ALIAS Boost::headers)
-  endif()
-
-  # FindBoost path
-  if (Boost_INCLUDE_DIRS)
-    list(APPEND _vix_boost_includes ${Boost_INCLUDE_DIRS})
-  endif()
-
-  # CONFIG target path
-  if (TARGET Boost::boost)
-    get_target_property(_boost_target_includes Boost::boost INTERFACE_INCLUDE_DIRECTORIES)
-    if (_boost_target_includes)
-      list(APPEND _vix_boost_includes ${_boost_target_includes})
-    endif()
-  endif()
-
-  list(REMOVE_DUPLICATES _vix_boost_includes)
-else()
-  message(FATAL_ERROR "[websocket] Boost is required. Set VIX_WEBSOCKET_WITH_BOOST=ON.")
-endif()
-
-
 # STATIC
-if (WEBSOCKET_SOURCES)
-  message(STATUS "[websocket] Building STATIC library with detected sources.")
+if (MIDDLEWARE_SOURCES)
+  message(STATUS "[middleware] Building STATIC library with detected sources.")
 
-  add_library(vix_websocket STATIC ${WEBSOCKET_SOURCES})
-  add_library(vix::websocket ALIAS vix_websocket)
-  add_library(vix::ws ALIAS vix_websocket)
-  target_compile_features(vix_websocket PUBLIC cxx_std_20)
+  add_library(vix_middleware STATIC ${MIDDLEWARE_SOURCES})
 
-  # SQLite (required for websocket storage)
-  # vcpkg exposes: unofficial-sqlite3::sqlite3
-  # other platforms may use FindSQLite3 (SQLite::SQLite3)
-  set(_vix_sqlite_target "")
-
-  find_package(unofficial-sqlite3 CONFIG QUIET)
-  if (unofficial-sqlite3_FOUND AND TARGET unofficial-sqlite3::sqlite3)
-    message(STATUS "[websocket] SQLite3 found (vcpkg): unofficial-sqlite3::sqlite3")
-    set(_vix_sqlite_target unofficial-sqlite3::sqlite3)
-  else()
-    find_package(SQLite3 QUIET)
-
-    if (SQLite3_FOUND)
-      # Normalize to SQLite::SQLite3 everywhere
-      if (TARGET SQLite::SQLite3)
-        set(_vix_sqlite_target SQLite::SQLite3)
-      elseif (TARGET SQLite3::SQLite3)
-        add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
-        set(_vix_sqlite_target SQLite::SQLite3)
-      elseif (TARGET sqlite3)
-        add_library(SQLite::SQLite3 ALIAS sqlite3)
-        set(_vix_sqlite_target SQLite::SQLite3)
-      endif()
-
-      message(STATUS "[websocket] SQLite3 found (FindSQLite3): ${_vix_sqlite_target}")
-    endif()
+  if (TARGET vix_warnings)
+    target_link_libraries(vix_middleware PUBLIC vix_warnings)
   endif()
 
-  if (NOT _vix_sqlite_target)
-    message(FATAL_ERROR
-      "[websocket] SQLite3 not found.\n"
-      "hint(vcpkg): vcpkg install sqlite3\n"
-      "hint: or provide SQLite3_INCLUDE_DIR / SQLite3_LIBRARY.\n")
-  endif()
+  add_library(vix::middleware ALIAS vix_middleware)
+  add_library(vix::mw         ALIAS vix_middleware)
+  target_compile_features(vix_middleware PUBLIC cxx_std_20)
 
-  # includes
-  target_include_directories(vix_websocket
+  target_include_directories(vix_middleware
     PUBLIC
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
 
-  # Treat Boost headers as SYSTEM (avoid third-party warnings)
-  if (_vix_boost_includes)
-    target_include_directories(vix_websocket SYSTEM PUBLIC ${_vix_boost_includes})
-  endif()
-
-  # Ensure Boost::boost exists/linked if available
-  if (TARGET Boost::boost)
-    target_link_libraries(vix_websocket PUBLIC Boost::boost)
-  endif()
-
-  # link deps
-  target_link_libraries(vix_websocket
+  target_link_libraries(vix_middleware
     PUBLIC
       ${VIX_CORE_TARGET}
-      ${VIX_UTILS_TARGET}
-      ${_vix_sqlite_target}
+      ${VIX_CACHE_TARGET}
   )
 
-  if (TARGET vix_warnings)
-    target_link_libraries(vix_websocket PUBLIC vix_warnings)
+  vix_mw_try_link_utils(vix_middleware PUBLIC)
+  vix_mw_try_link_json(vix_middleware PUBLIC)
+
+  if (VIX_ENABLE_SANITIZERS AND TARGET vix_sanitizers)
+    target_link_libraries(vix_middleware PUBLIC vix_sanitizers)
   endif()
 
-  if (TARGET vix_sanitizers)
-    target_link_libraries(vix_websocket PUBLIC vix_sanitizers)
-  endif()
-
-  vix_websocket_try_link_json(vix_websocket PUBLIC)
-
-  set_target_properties(vix_websocket PROPERTIES
-    OUTPUT_NAME vix_websocket
+  set_target_properties(vix_middleware PROPERTIES
+    OUTPUT_NAME vix_middleware
     VERSION ${PROJECT_VERSION}
     SOVERSION 0
-    EXPORT_NAME websocket
+    EXPORT_NAME middleware
   )
 
-  install(TARGETS vix_websocket
+  install(TARGETS vix_middleware
     EXPORT VixTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
-
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING
-      PATTERN "*.hpp"
-      PATTERN "*.h"
-      PATTERN "*.inc"
-  )
+          FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
+
 # HEADER-ONLY
 else()
-  message(STATUS "[websocket] Building HEADER-ONLY library (no sources).")
+  message(STATUS "[middleware] Building HEADER-ONLY library (no sources).")
 
-  add_library(vix_websocket INTERFACE)
-  add_library(vix::websocket ALIAS vix_websocket)
-  add_library(vix::ws ALIAS vix_websocket)
-  target_compile_features(vix_websocket INTERFACE cxx_std_20)
+  add_library(vix_middleware INTERFACE)
 
   if (TARGET vix_warnings)
-    target_link_libraries(vix_websocket INTERFACE vix_warnings)
+    target_link_libraries(vix_middleware INTERFACE vix_warnings)
   endif()
 
-  if (TARGET vix_sanitizers)
-    target_link_libraries(vix_websocket INTERFACE vix_sanitizers)
-  endif()
+  add_library(vix::middleware ALIAS vix_middleware)
+  add_library(vix::mw         ALIAS vix_middleware)
+  target_compile_features(vix_middleware INTERFACE cxx_std_20)
 
-  target_include_directories(vix_websocket INTERFACE
+  target_include_directories(vix_middleware INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
 
-  # Treat Boost headers as SYSTEM (avoid third-party warnings)
-  if (_vix_boost_includes)
-    target_include_directories(vix_websocket SYSTEM INTERFACE ${_vix_boost_includes})
-  endif()
-
-  if (TARGET Boost::boost)
-    target_link_libraries(vix_websocket INTERFACE Boost::boost)
-  endif()
-
-  target_link_libraries(vix_websocket INTERFACE
+  target_link_libraries(vix_middleware INTERFACE
     ${VIX_CORE_TARGET}
-    ${VIX_UTILS_TARGET}
+    ${VIX_CACHE_TARGET}
   )
 
-  vix_websocket_try_link_json(vix_websocket INTERFACE)
+  vix_mw_try_link_utils(vix_middleware INTERFACE)
+  vix_mw_try_link_json(vix_middleware INTERFACE)
 
-  install(TARGETS vix_websocket
+  if (VIX_ENABLE_SANITIZERS AND TARGET vix_sanitizers)
+    target_link_libraries(vix_middleware INTERFACE vix_sanitizers)
+  endif()
+
+  install(TARGETS vix_middleware
     EXPORT VixTargets
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
@@ -313,27 +238,28 @@ else()
           FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
 endif()
 
-# Examples (optional)
-option(VIX_WEBSOCKET_BUILD_EXAMPLES
-       "Build WebSocket examples (server + HTML chat demo)" ON)
+# Tests
+option(VIX_MW_BUILD_TESTS "Build middleware tests" OFF)
 
-if (VIX_WEBSOCKET_BUILD_EXAMPLES)
-  add_subdirectory(examples)
+if (VIX_MW_BUILD_TESTS)
+  include(CTest)
+  enable_testing()
+  add_subdirectory(tests)
 endif()
 
 # Summary
 message(STATUS "------------------------------------------------------")
-message(STATUS "vix::websocket configured (${PROJECT_VERSION})")
-if (WEBSOCKET_SOURCES)
+message(STATUS "vix::middleware configured (${PROJECT_VERSION})")
+if (MIDDLEWARE_SOURCES)
   message(STATUS "Mode: STATIC / sources found")
 else()
   message(STATUS "Mode: HEADER-ONLY / no sources")
 endif()
-message(STATUS "Core target:          ${VIX_CORE_TARGET}")
-message(STATUS "Utils target:         ${VIX_UTILS_TARGET}")
-message(STATUS "JSON policy:          ${VIX_WEBSOCKET_WITH_JSON}")
-message(STATUS "Include dir:          ${CMAKE_CURRENT_SOURCE_DIR}/include")
-message(STATUS "Build type:           ${CMAKE_BUILD_TYPE}")
-message(STATUS "Fetch core enabled:   ${VIX_WEBSOCKET_FETCH_CORE}")
-message(STATUS "Fetch utils enabled:  ${VIX_WEBSOCKET_FETCH_UTILS}")
+message(STATUS "Core target:        ${VIX_CORE_TARGET}")
+message(STATUS "Cache target:       ${VIX_CACHE_TARGET}")
+message(STATUS "Utils policy:       ${VIX_MW_WITH_UTILS}")
+message(STATUS "JSON policy:        ${VIX_MW_WITH_JSON}")
+message(STATUS "Include dir:        ${CMAKE_CURRENT_SOURCE_DIR}/include")
+message(STATUS "Sanitizers enabled: ${VIX_ENABLE_SANITIZERS}")
+message(STATUS "Build type:         ${CMAKE_BUILD_TYPE}")
 message(STATUS "------------------------------------------------------")

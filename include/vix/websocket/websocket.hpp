@@ -14,29 +14,33 @@
 #ifndef VIX_WEBSOCKET_ENGINE_HPP
 #define VIX_WEBSOCKET_ENGINE_HPP
 
-#include <memory>
-#include <vector>
 #include <atomic>
+#include <memory>
 #include <thread>
+#include <vector>
 
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/beast/core.hpp>
-
+#include <vix/async/core/io_context.hpp>
+#include <vix/async/core/task.hpp>
+#include <vix/async/net/tcp.hpp>
+#include <vix/config/Config.hpp>
+#include <vix/executor/IExecutor.hpp>
+#include <vix/utils/Logger.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/router.hpp>
-#include <vix/executor/IExecutor.hpp>
-#include <vix/config/Config.hpp>
-#include <vix/utils/Logger.hpp>
+#include <vix/websocket/session.hpp>
 
 namespace vix::websocket
 {
-  namespace net = boost::asio;
-  namespace beast = boost::beast;
+  using vix::async::core::io_context;
+  using vix::async::core::task;
+  using vix::async::net::tcp_endpoint;
+  using vix::async::net::tcp_listener;
+  using vix::async::net::tcp_stream;
 
   /**
    * @brief Low-level asynchronous WebSocket server engine.
    *
-   * Owns the acceptor, IO context, worker threads and session lifecycle.
+   * Owns the native Vix listener, runtime context, worker threads and session lifecycle.
    * This class is intentionally protocol-agnostic and delegates all
    * connection events to the Router.
    */
@@ -67,23 +71,35 @@ namespace vix::websocket
     void join_threads();
 
     /** @brief Check whether a stop has been requested. */
-    bool is_stop_requested() const { return stopRequested_.load(); }
+    bool is_stop_requested() const
+    {
+      return stopRequested_.load(std::memory_order_acquire);
+    }
 
   private:
-    /** @brief Initialize the TCP acceptor on the configured port. */
-    void init_acceptor(unsigned short port);
+    /** @brief Initialize the native Vix TCP listener on the configured port. */
+    void init_listener(unsigned short port);
 
     /** @brief Begin accepting incoming TCP connections. */
     void start_accept();
 
+    /** @brief Native accept loop. */
+    task<void> accept_loop();
+
     /** @brief Spawn IO worker threads. */
     void start_io_threads();
 
-    /** @brief Handle a newly accepted TCP client socket. */
-    void handle_client(net::ip::tcp::socket socket);
+    /** @brief Handle a newly accepted TCP client stream. */
+    task<void> handle_client(std::unique_ptr<tcp_stream> stream);
+
+    /** @brief Close a client stream safely. */
+    void close_stream(std::unique_ptr<tcp_stream> stream);
 
     /** @brief Compute number of IO threads to run. */
     std::size_t compute_io_thread_count() const;
+
+    /** @brief Build the bind endpoint from configuration. */
+    tcp_endpoint make_bind_endpoint() const;
 
   private:
     vix::config::Config &coreConfig_;
@@ -91,12 +107,13 @@ namespace vix::websocket
     std::shared_ptr<vix::executor::IExecutor> executor_;
     std::shared_ptr<Router> router_;
 
-    std::shared_ptr<net::io_context> ioContext_;
-    std::unique_ptr<net::ip::tcp::acceptor> acceptor_;
+    std::shared_ptr<io_context> ioContext_;
+    std::unique_ptr<tcp_listener> listener_;
     std::vector<std::thread> ioThreads_;
 
     std::atomic<bool> stopRequested_{false};
     std::atomic<bool> logged_listen_{false};
+    std::atomic<int> boundPort_{0};
   };
 
 } // namespace vix::websocket

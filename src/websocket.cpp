@@ -12,12 +12,17 @@
  *
  */
 #include <vix/websocket/websocket.hpp>
-#include <vix/websocket/session.hpp>
 
-#include <system_error>
 #include <algorithm>
 #include <chrono>
-#include <mutex>
+#include <cstddef>
+#include <memory>
+#include <stdexcept>
+#include <thread>
+#include <utility>
+
+#include <vix/async/core/spawn.hpp>
+#include <vix/async/net/tcp.hpp>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -26,20 +31,27 @@
 
 namespace vix::websocket
 {
-  using tcp = net::ip::tcp;
   using Logger = vix::utils::Logger;
-  static Logger &logger = Logger::getInstance();
+  using vix::async::core::spawn_detached;
 
   namespace
   {
+    inline Logger &logger()
+    {
+      return Logger::getInstance();
+    }
+
     void init_logger_from_env_once()
     {
       static std::once_flag once;
-      std::call_once(once, []()
-                     {
-                auto &log = vix::websocket::Logger::getInstance();
-                log.setLevelFromEnv("VIX_LOG_LEVEL");
-                log.setFormatFromEnv("VIX_LOG_FORMAT"); });
+      std::call_once(
+          once,
+          []()
+          {
+            auto &log = Logger::getInstance();
+            log.setLevelFromEnv("VIX_LOG_LEVEL");
+            log.setFormatFromEnv("VIX_LOG_FORMAT");
+          });
     }
 
     void set_affinity(std::size_t thread_index)
@@ -47,7 +59,9 @@ namespace vix::websocket
 #ifdef __linux__
       unsigned int hc = std::thread::hardware_concurrency();
       if (hc == 0u)
+      {
         hc = 1u;
+      }
 
       const unsigned int cpu =
           static_cast<unsigned int>(thread_index % static_cast<std::size_t>(hc));
@@ -71,22 +85,25 @@ namespace vix::websocket
         wsConfig_(Config::from_core(coreConfig_)),
         executor_(std::move(executor)),
         router_(std::move(router)),
-        ioContext_(std::make_shared<net::io_context>()),
-        acceptor_(nullptr),
+        ioContext_(std::make_shared<io_context>()),
+        listener_(nullptr),
         ioThreads_(),
-        stopRequested_(false)
+        stopRequested_(false),
+        logged_listen_(false),
+        boundPort_(0)
   {
     const int port = coreConfig_.getInt("websocket.port", 9090);
-    if (port < 1024 || port > 65535)
+    if ((port != 0 && port < 1024) || port > 65535)
     {
-      logger.log(Logger::Level::Error,
-                 "[ws] port out of range (1024-65535): {}", port);
+      logger().log(Logger::Level::Error,
+                   "[ws] port out of range (1024-65535): {}",
+                   port);
       throw std::invalid_argument("Invalid WebSocket port");
     }
 
-    init_acceptor(static_cast<unsigned short>(port));
+    init_listener(static_cast<unsigned short>(port));
 
-    logger.log(
+    logger().log(
         Logger::Level::Debug,
         "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
         wsConfig_.maxMessageSize,
@@ -94,70 +111,120 @@ namespace vix::websocket
         wsConfig_.pingInterval.count());
   }
 
-  LowLevelServer::~LowLevelServer() = default;
-
-  void LowLevelServer::init_acceptor(unsigned short port)
+  LowLevelServer::~LowLevelServer()
   {
-    acceptor_ = std::make_unique<tcp::acceptor>(*ioContext_);
-    boost::system::error_code ec;
-
-    tcp::endpoint endpoint(tcp::v4(), port);
-
-    acceptor_->open(endpoint.protocol(), ec);
-    if (ec)
-      throw std::system_error(ec, "open acceptor");
-
-    acceptor_->set_option(boost::asio::socket_base::reuse_address(true), ec);
-    if (ec)
-      throw std::system_error(ec, "reuse_address");
-
-    acceptor_->bind(endpoint, ec);
-    if (ec)
+    try
     {
-      if (ec == boost::system::errc::address_in_use)
-      {
-        throw std::system_error(
-            ec,
-            "bind acceptor: address already in use. Another process is listening on this port.");
-      }
-      throw std::system_error(ec, "bind acceptor");
+      stop_async();
+      join_threads();
+    }
+    catch (...)
+    {
+    }
+  }
+
+  vix::async::net::tcp_endpoint LowLevelServer::make_bind_endpoint() const
+  {
+    vix::async::net::tcp_endpoint ep{};
+    ep.host = coreConfig_.getString("websocket.host", "0.0.0.0");
+    ep.port = static_cast<std::uint16_t>(coreConfig_.getInt("websocket.port", 9090));
+    return ep;
+  }
+
+  void LowLevelServer::init_listener(unsigned short port)
+  {
+    listener_ = vix::async::net::make_tcp_listener(*ioContext_);
+    if (!listener_)
+    {
+      throw std::runtime_error("failed to create native Vix TCP listener");
     }
 
-    acceptor_->listen(boost::asio::socket_base::max_listen_connections, ec);
-    if (ec)
-      throw std::system_error(ec, "listen acceptor");
+    try
+    {
+      vix::async::net::tcp_endpoint endpoint{};
+      endpoint.host = coreConfig_.getString("websocket.host", "0.0.0.0");
+      endpoint.port = port;
+
+      auto listen_task = listener_->async_listen(endpoint);
+      std::move(listen_task).start(ioContext_->get_scheduler());
+
+      boundPort_.store(static_cast<int>(port), std::memory_order_relaxed);
+    }
+    catch (const std::exception &e)
+    {
+      logger().log(Logger::Level::Error,
+                   "[ws] listener init failed on port {}: {}",
+                   static_cast<unsigned int>(port),
+                   e.what());
+      throw;
+    }
   }
 
   void LowLevelServer::run()
   {
     init_logger_from_env_once();
     vix::utils::console_wait_banner();
+
     start_accept();
     start_io_threads();
   }
 
   void LowLevelServer::start_accept()
   {
-    auto socket = std::make_shared<tcp::socket>(*ioContext_);
+    if (stopRequested_.load(std::memory_order_acquire))
+    {
+      return;
+    }
 
-    acceptor_->async_accept(
-        *socket,
-        [this, socket](boost::system::error_code ec)
+    if (!logged_listen_.exchange(true, std::memory_order_acq_rel))
+    {
+      logger().log(Logger::Level::Info,
+                   "[ws] listening on {}:{}",
+                   coreConfig_.getString("websocket.host", "0.0.0.0"),
+                   boundPort_.load(std::memory_order_relaxed));
+    }
+
+    spawn_detached(*ioContext_, accept_loop());
+  }
+
+  vix::async::core::task<void> LowLevelServer::accept_loop()
+  {
+    while (!stopRequested_.load(std::memory_order_acquire))
+    {
+      try
+      {
+        auto stream = co_await listener_->async_accept();
+
+        if (!stream)
         {
-          if (!ec && !stopRequested_.load(std::memory_order_relaxed))
-          {
-            handle_client(std::move(*socket));
-          }
-          else if (ec && !stopRequested_.load(std::memory_order_relaxed))
-          {
-            logger.log(Logger::Level::Debug, "[ws] accept error ({})", ec.message());
-          }
+          continue;
+        }
 
-          if (!stopRequested_.load(std::memory_order_relaxed))
-          {
-            start_accept();
-          }
-        });
+        if (stopRequested_.load(std::memory_order_acquire))
+        {
+          close_stream(std::move(stream));
+          co_return;
+        }
+
+        spawn_detached(*ioContext_, handle_client(std::move(stream)));
+      }
+      catch (const std::exception &e)
+      {
+        if (!stopRequested_.load(std::memory_order_acquire))
+        {
+          logger().log(Logger::Level::Debug,
+                       "[ws] accept error ({})",
+                       e.what());
+        }
+
+        if (stopRequested_.load(std::memory_order_acquire))
+        {
+          break;
+        }
+      }
+    }
+
+    co_return;
   }
 
   void LowLevelServer::start_io_threads()
@@ -174,33 +241,77 @@ namespace vix::websocket
 
             try
             {
-                set_affinity(i);
-                ioContext_->run();
+              set_affinity(i);
+              ioContext_->run();
             }
             catch (const std::exception &e)
             {
-                logger.log(Logger::Level::Error,
-                            "[ws] io thread {} error ({})", i, e.what());
+              logger().log(Logger::Level::Error,
+                           "[ws] io thread {} error ({})",
+                           i,
+                           e.what());
             }
 
-            logger.log(Logger::Level::Debug,
-                        "[ws] io thread {} finished", i); });
+            logger().log(Logger::Level::Debug,
+                         "[ws] io thread {} finished",
+                         i);
+          });
     }
   }
 
-  void LowLevelServer::handle_client(tcp::socket socket)
+  vix::async::core::task<void> LowLevelServer::handle_client(std::unique_ptr<tcp_stream> stream)
   {
-    auto session = std::make_shared<Session>(
-        std::move(socket),
-        wsConfig_,
-        router_,
-        executor_);
+    if (!stream)
+    {
+      co_return;
+    }
 
-    session->run();
+    try
+    {
+      auto session = std::make_shared<Session>(
+          std::move(stream),
+          wsConfig_,
+          router_,
+          executor_);
+
+      co_await session->run();
+    }
+    catch (const std::exception &e)
+    {
+      logger().log(Logger::Level::Error,
+                   "[ws] failed to create or run session ({})",
+                   e.what());
+
+      close_stream(std::move(stream));
+    }
+
+    co_return;
+  }
+
+  void LowLevelServer::close_stream(std::unique_ptr<tcp_stream> stream)
+  {
+    if (!stream)
+    {
+      return;
+    }
+
+    try
+    {
+      stream->close();
+    }
+    catch (...)
+    {
+    }
   }
 
   std::size_t LowLevelServer::compute_io_thread_count() const
   {
+    const int configured = coreConfig_.getInt("websocket.io_threads", 0);
+    if (configured > 0)
+    {
+      return static_cast<std::size_t>(configured);
+    }
+
     const unsigned int hc = std::thread::hardware_concurrency();
     const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
     return static_cast<std::size_t>(std::max(1u, v));
@@ -208,24 +319,47 @@ namespace vix::websocket
 
   void LowLevelServer::stop_async()
   {
-    stopRequested_.store(true);
+    const bool already =
+        stopRequested_.exchange(true, std::memory_order_acq_rel);
 
-    if (acceptor_ && acceptor_->is_open())
+    if (already)
     {
-      boost::system::error_code ec;
-      acceptor_->close(ec);
+      return;
     }
 
-    ioContext_->stop();
+    try
+    {
+      if (listener_)
+      {
+        listener_->close();
+      }
+    }
+    catch (...)
+    {
+    }
+
+    if (ioContext_)
+    {
+      ioContext_->stop();
+    }
   }
 
   void LowLevelServer::join_threads()
   {
+    if (ioContext_)
+    {
+      ioContext_->stop();
+    }
+
     for (auto &t : ioThreads_)
     {
       if (t.joinable())
+      {
         t.join();
+      }
     }
+
+    ioThreads_.clear();
   }
 
 } // namespace vix::websocket
