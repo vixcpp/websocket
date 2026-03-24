@@ -88,9 +88,11 @@
  */
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 #include <nlohmann/json.hpp>
 
@@ -313,65 +315,27 @@ int main()
   // 7) HTTP App : /ws/poll + /ws/send (LongPolling)
   vix::App httpApp;
 
-  auto get_query_param = [](const http::request<http::string_body> &req,
-                            std::string_view key) -> std::optional<std::string>
-  {
-    std::string target = std::string(req.target());
-    auto pos = target.find('?');
-    if (pos == std::string::npos)
-      return std::nullopt;
-
-    std::string query = target.substr(pos + 1);
-    std::size_t start = 0;
-
-    while (start < query.size())
-    {
-      auto amp = query.find('&', start);
-      auto part = query.substr(
-          start,
-          (amp == std::string::npos) ? std::string::npos : (amp - start));
-
-      auto eq = part.find('=');
-      if (eq != std::string::npos)
-      {
-        std::string k = part.substr(0, eq);
-        std::string v = part.substr(eq + 1);
-        if (k == key)
-        {
-          return v;
-        }
-      }
-
-      if (amp == std::string::npos)
-        break;
-      start = amp + 1;
-    }
-    return std::nullopt;
-  };
-
   httpApp.get(
       "/ws/poll",
-      [lpBridge, &get_query_param](const http::request<http::string_body> &req,
-                                   vix::vhttp::ResponseWrapper &res)
+      [lpBridge](vix::vhttp::Request &req,
+                 vix::vhttp::ResponseWrapper &res)
       {
-        auto sessionIdOpt = get_query_param(req, "session_id");
-        if (!sessionIdOpt || sessionIdOpt->empty())
+        const std::string sessionId = req.query_value("session_id");
+        if (sessionId.empty())
         {
-          res.status(http::status::bad_request).json({
-              "error",
-              "missing_session_id",
+          res.bad_request().json(nlohmann::json{
+              {"error", "missing_session_id"},
           });
           return;
         }
 
-        std::string sessionId = *sessionIdOpt;
-
         std::size_t maxMessages = 50;
-        if (auto maxStrOpt = get_query_param(req, "max"))
+        if (req.has_query("max"))
         {
           try
           {
-            maxMessages = static_cast<std::size_t>(std::stoul(*maxStrOpt));
+            maxMessages = static_cast<std::size_t>(
+                std::stoul(req.query_value("max")));
           }
           catch (...)
           {
@@ -381,12 +345,12 @@ int main()
         auto messages = lpBridge->poll(sessionId, maxMessages, true);
         auto body = vix::websocket::json_messages_to_nlohmann_array(messages);
 
-        res.status(http::status::ok).json(body);
+        res.ok().json(body);
       });
 
   httpApp.post(
       "/ws/send",
-      [lpBridge](const http::request<http::string_body> &req,
+      [lpBridge](vix::vhttp::Request &req,
                  vix::vhttp::ResponseWrapper &res)
       {
         njson j;
@@ -396,10 +360,10 @@ int main()
         }
         catch (...)
         {
-          res.status(http::status::bad_request).json({
-              "error",
-              "invalid_json_body",
-          });
+          res.status(static_cast<int>(http::status::bad_request))
+              .json(njson{
+                  {"error", "invalid_json_body"},
+              });
           return;
         }
 
@@ -409,10 +373,10 @@ int main()
 
         if (type.empty())
         {
-          res.status(http::status::bad_request).json({
-              "error",
-              "missing_type",
-          });
+          res.status(static_cast<int>(http::status::bad_request))
+              .json(njson{
+                  {"error", "missing_type"},
+              });
           return;
         }
 
@@ -439,22 +403,21 @@ int main()
 
         lpBridge->send_from_http(sessionId, msg);
 
-        res.status(http::status::accepted).json({
-            "status",
-            "queued",
-            "session_id",
-            sessionId,
-        });
+        res.status(static_cast<int>(http::status::accepted))
+            .json(njson{
+                {"status", "queued"},
+                {"session_id", sessionId},
+            });
       });
 
   httpApp.get(
       "/health",
-      [](auto &, vix::vhttp::ResponseWrapper &res)
+      [](vix::vhttp::Request &, vix::vhttp::ResponseWrapper &res)
       {
-        res.status(http::status::ok).json({
-            "status",
-            "ok",
-        });
+        res.status(static_cast<int>(http::status::ok))
+            .json(njson{
+                {"status", "ok"},
+            });
       });
 
   std::thread wsThread{[&wsApp]()

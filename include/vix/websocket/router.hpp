@@ -16,7 +16,7 @@
 
 #include <functional>
 #include <string>
-#include <boost/system/error_code.hpp>
+#include <utility>
 
 namespace vix::websocket
 {
@@ -28,14 +28,14 @@ namespace vix::websocket
    * Acts as a simple dispatch layer between the low-level WebSocket engine
    * and user-defined callbacks (open, close, error, message).
    *
-   * The router itself contains no protocol logic and is intentionally minimal.
+   * This native Vix version is independent of Boost.
    */
   class Router
   {
   public:
     using OpenHandler = std::function<void(Session &)>;
     using CloseHandler = std::function<void(Session &)>;
-    using ErrorHandler = std::function<void(Session &, const boost::system::error_code &)>;
+    using ErrorHandler = std::function<void(Session &, const std::string &)>;
     using MessageHandler = std::function<void(Session &, std::string)>;
 
     Router() = default;
@@ -53,16 +53,64 @@ namespace vix::websocket
     void on_message(MessageHandler cb) { messageHandler_ = std::move(cb); }
 
     /** @brief Dispatch open event to the registered handler. */
-    void handle_open(Session &session) const;
+    void handle_open(Session &session) const
+    {
+      if (openHandler_)
+      {
+        openHandler_(session);
+      }
+    }
 
     /** @brief Dispatch close event to the registered handler. */
-    void handle_close(Session &session) const;
+    void handle_close(Session &session) const
+    {
+      if (closeHandler_)
+      {
+        closeHandler_(session);
+      }
+    }
 
     /** @brief Dispatch error event to the registered handler. */
-    void handle_error(Session &session, const boost::system::error_code &ec) const;
+    void handle_error(Session &session, const std::string &error) const
+    {
+      if (errorHandler_)
+      {
+        errorHandler_(session, error);
+      }
+    }
 
     /** @brief Dispatch message event to the registered handler. */
-    void handle_message(Session &session, std::string payload) const;
+    void handle_message(Session &session, std::string payload) const
+    {
+      if (messageHandler_)
+      {
+        messageHandler_(session, std::move(payload));
+      }
+    }
+
+    /** @brief Return true if an open handler is registered. */
+    bool has_open_handler() const noexcept
+    {
+      return static_cast<bool>(openHandler_);
+    }
+
+    /** @brief Return true if a close handler is registered. */
+    bool has_close_handler() const noexcept
+    {
+      return static_cast<bool>(closeHandler_);
+    }
+
+    /** @brief Return true if an error handler is registered. */
+    bool has_error_handler() const noexcept
+    {
+      return static_cast<bool>(errorHandler_);
+    }
+
+    /** @brief Return true if a message handler is registered. */
+    bool has_message_handler() const noexcept
+    {
+      return static_cast<bool>(messageHandler_);
+    }
 
   private:
     OpenHandler openHandler_{};

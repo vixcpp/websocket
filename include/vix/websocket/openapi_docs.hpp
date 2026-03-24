@@ -17,17 +17,15 @@
 #include <string>
 #include <utility>
 
-#include <boost/beast/http.hpp>
 #include <nlohmann/json.hpp>
 
-#include <vix/router/RouteDoc.hpp>
 #include <vix/openapi/Registry.hpp>
+#include <vix/router/RouteDoc.hpp>
 
 namespace vix::websocket::openapi
 {
   /**
    * Register WebSocket + Long-Polling docs into the global OpenAPI registry.
-   *
    */
   inline void register_ws_docs(
       std::string ws_upgrade_path = "/ws",
@@ -35,11 +33,9 @@ namespace vix::websocket::openapi
       std::string lp_send_path = "/ws/send",
       std::string metrics_path = "/metrics")
   {
-    namespace http = boost::beast::http;
-
-    auto add = [](http::verb method, std::string path, vix::router::RouteDoc doc)
+    auto add = [](std::string method, std::string path, vix::router::RouteDoc doc)
     {
-      vix::openapi::Registry::add(method, std::move(path), std::move(doc));
+      vix::openapi::Registry::add(std::move(method), std::move(path), std::move(doc));
     };
 
     // 1) WebSocket upgrade endpoint (doc only)
@@ -54,11 +50,10 @@ namespace vix::websocket::openapi
       doc.responses["101"] = {{"description", "Switching Protocols (WebSocket upgrade)"}};
       doc.responses["426"] = {{"description", "Upgrade Required (when called as plain HTTP)"}};
 
-      // Optional OpenAPI hints
       doc.x["x-ws-upgrade"] = true;
       doc.x["x-ws-url"] = "ws://<host>:<ws_port>/";
 
-      add(http::verb::get, std::move(ws_upgrade_path), std::move(doc));
+      add("GET", std::move(ws_upgrade_path), std::move(doc));
     }
 
     // 2) Long-poll endpoint (GET)
@@ -70,11 +65,10 @@ namespace vix::websocket::openapi
           "Query params: session_id (string), max (int).";
       doc.tags = {"ws", "long-poll"};
 
-      // If your RouteDoc supports parameters, keep it minimal via description.
       doc.responses["200"] = {{"description", "Array of queued messages"}};
       doc.responses["503"] = {{"description", "Long-poll bridge not attached"}};
 
-      add(http::verb::get, std::move(lp_poll_path), std::move(doc));
+      add("GET", std::move(lp_poll_path), std::move(doc));
     }
 
     // 3) Long-poll send endpoint (POST)
@@ -111,7 +105,6 @@ namespace vix::websocket::openapi
            }},
       };
 
-      // ICI: example pour pre-remplir Swagger UI
       doc.request_body["content"]["application/json"]["example"] = {
           {"type", "chat.message"},
           {"room", "general"},
@@ -122,7 +115,7 @@ namespace vix::websocket::openapi
       doc.responses["400"] = {{"description", "Invalid JSON body or missing fields"}};
       doc.responses["503"] = {{"description", "Long-poll bridge not attached"}};
 
-      add(http::verb::post, std::move(lp_send_path), std::move(doc));
+      add("POST", std::move(lp_send_path), std::move(doc));
     }
 
     // 4) Metrics endpoint (GET /metrics)
@@ -137,7 +130,7 @@ namespace vix::websocket::openapi
       doc.responses["200"] = {{"description", "Prometheus text format"}};
       doc.responses["501"] = {{"description", "Not configured in this app"}};
 
-      add(http::verb::get, std::move(metrics_path), std::move(doc));
+      add("GET", std::move(metrics_path), std::move(doc));
     }
   }
 
