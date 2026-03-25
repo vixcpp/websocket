@@ -10,8 +10,11 @@
  *
  *  Vix.cpp
  */
-#include <vix/websocket.hpp>
 #include <iostream>
+#include <memory>
+
+#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/websocket.hpp>
 
 using vix::websocket::App;
 using vix::websocket::Session;
@@ -37,7 +40,9 @@ void handle_chat(
 
 int main()
 {
-  App app{"config/config.json"};
+  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+
+  App app{"config/config.json", exec};
 
   (void)app.ws("/chat", handle_chat);
 

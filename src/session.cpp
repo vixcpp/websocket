@@ -18,11 +18,13 @@
 #include <cctype>
 #include <chrono>
 #include <cstring>
+#include <cerrno>
 #include <mutex>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -181,7 +183,7 @@ namespace vix::websocket
       std::unique_ptr<tcp_stream> stream,
       const Config &cfg,
       std::shared_ptr<Router> router,
-      std::shared_ptr<vix::executor::IExecutor> executor)
+      std::shared_ptr<vix::executor::RuntimeExecutor> executor)
       : stream_(std::move(stream)),
         cfg_(cfg),
         router_(std::move(router)),
@@ -303,7 +305,8 @@ namespace vix::websocket
       throw std::runtime_error("websocket handshake must use GET");
     }
 
-    const std::string upgrade = to_lower_copy(get_header_value(raw_head, "Upgrade"));
+    const std::string upgrade =
+        to_lower_copy(get_header_value(raw_head, "Upgrade"));
     if (upgrade != "websocket")
     {
       throw std::runtime_error("missing Upgrade: websocket");
@@ -314,13 +317,15 @@ namespace vix::websocket
       throw std::runtime_error("missing Connection: Upgrade");
     }
 
-    const std::string ws_key = trim_copy(get_header_value(raw_head, "Sec-WebSocket-Key"));
+    const std::string ws_key =
+        trim_copy(get_header_value(raw_head, "Sec-WebSocket-Key"));
     if (ws_key.empty())
     {
       throw std::runtime_error("missing Sec-WebSocket-Key");
     }
 
-    const std::string version = trim_copy(get_header_value(raw_head, "Sec-WebSocket-Version"));
+    const std::string version =
+        trim_copy(get_header_value(raw_head, "Sec-WebSocket-Version"));
     if (!version.empty() && version != "13")
     {
       throw std::runtime_error("unsupported Sec-WebSocket-Version");
@@ -496,7 +501,7 @@ namespace vix::websocket
       co_return;
     }
 
-    log().log(Logger::Level::Info, "[ws] disconnected (idle timeout)");
+    log().log(Logger::Level::Debug, "[ws] disconnected (idle timeout)");
 
     closing_ = true;
     open_ = false;
@@ -590,7 +595,32 @@ namespace vix::websocket
 
   void Session::emit_error(const std::string &message)
   {
-    log().log(Logger::Level::Error, "[ws] {}", message);
+    std::string lower = message;
+    std::transform(
+        lower.begin(),
+        lower.end(),
+        lower.begin(),
+        [](unsigned char c)
+        {
+          return static_cast<char>(std::tolower(c));
+        });
+
+    if (lower.find("end of file") != std::string::npos ||
+        lower.find("eof") != std::string::npos ||
+        lower.find("broken pipe") != std::string::npos ||
+        lower.find("connection reset") != std::string::npos)
+    {
+      log().log(
+          Logger::Level::Debug,
+          "[ws] client disconnected: {}",
+          message);
+      return;
+    }
+
+    log().log(
+        Logger::Level::Error,
+        "[ws] {}",
+        message);
 
     if (router_)
     {
@@ -646,6 +676,7 @@ namespace vix::websocket
           co_return;
         }());
   }
+
   task<void> Session::write_raw_frame(const std::vector<std::byte> &frame)
   {
     if (!stream_ || !stream_->is_open())
@@ -719,7 +750,7 @@ namespace vix::websocket
 
       if (r == 0)
       {
-        throw std::runtime_error("unexpected EOF while reading websocket data");
+        throw std::system_error(std::make_error_code(std::errc::connection_reset));
       }
 
       readBuffer_.append(

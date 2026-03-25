@@ -13,15 +13,16 @@
 #ifndef VIX_WEBSOCKET_APP_HPP
 #define VIX_WEBSOCKET_APP_HPP
 
-#include <vix/websocket/server.hpp>
-#include <vix/websocket/protocol.hpp>
-#include <vix/config/Config.hpp>
-#include <vix/experimental/ThreadPoolExecutor.hpp>
-
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <vix/config/Config.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/json/Simple.hpp>
+#include <vix/websocket/protocol.hpp>
+#include <vix/websocket/server.hpp>
 
 namespace vix::websocket
 {
@@ -31,7 +32,11 @@ namespace vix::websocket
   /**
    * @brief High-level WebSocket application wrapper.
    *
-   * Manages configuration, thread pool, routes, and the underlying WebSocket server.
+   * Manages configuration, runtime executor, routes, and the underlying
+   * WebSocket server.
+   *
+   * This version is aligned with the Vix runtime architecture and no longer
+   * depends on the legacy threadpool-based executor abstraction.
    */
   class App
   {
@@ -48,14 +53,11 @@ namespace vix::websocket
      * @brief Construct a WebSocket app.
      *
      * @param configPath Path to the configuration file.
-     * @param minThreads Minimum number of worker threads.
-     * @param maxThreads Maximum number of worker threads.
-     * @param defaultPrio Default task priority.
+     * @param executor Shared runtime executor used by the WebSocket stack.
      */
-    App(const std::string &configPath,
-        std::size_t minThreads = 4,
-        std::size_t maxThreads = 8,
-        int defaultPrio = 0);
+    App(
+        const std::string &configPath,
+        std::shared_ptr<vix::executor::RuntimeExecutor> executor);
 
     App(const App &) = delete;
     App &operator=(const App &) = delete;
@@ -64,6 +66,10 @@ namespace vix::websocket
 
     /**
      * @brief Register a WebSocket endpoint with a typed handler.
+     *
+     * @param endpoint Logical endpoint key.
+     * @param handler Typed message handler associated with the endpoint.
+     * @return Current app instance.
      */
     [[nodiscard]] App &ws(const std::string &endpoint, TypedHandler handler);
 
@@ -77,24 +83,63 @@ namespace vix::websocket
      */
     void stop();
 
-    /** @brief Access the underlying WebSocket server. */
-    [[nodiscard]] Server &server() noexcept { return server_; }
+    /**
+     * @brief Access the underlying WebSocket server.
+     *
+     * @return Server reference.
+     */
+    [[nodiscard]] Server &server() noexcept
+    {
+      return server_;
+    }
 
-    /** @brief Access the application configuration. */
-    [[nodiscard]] vix::config::Config &config() noexcept { return config_; }
+    /**
+     * @brief Access the application configuration.
+     *
+     * @return Configuration reference.
+     */
+    [[nodiscard]] vix::config::Config &config() noexcept
+    {
+      return config_;
+    }
+
+    /**
+     * @brief Access the runtime executor used by the app.
+     *
+     * @return Shared runtime executor.
+     */
+    [[nodiscard]] std::shared_ptr<vix::executor::RuntimeExecutor> executor() noexcept
+    {
+      return executor_;
+    }
 
   private:
+    /**
+     * @brief Registered typed WebSocket route.
+     */
     struct Route
     {
       std::string endpoint;
       TypedHandler handler;
     };
 
-    vix::config::Config config_;
-    std::shared_ptr<vix::executor::IExecutor> executor_;
-    Server server_;
-    std::vector<Route> routes_;
+    /**
+     * @brief Install the internal typed-message dispatcher.
+     */
     void install_dispatcher();
+
+  private:
+    /** @brief Application configuration source. */
+    vix::config::Config config_;
+
+    /** @brief Shared runtime executor used by this app. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
+
+    /** @brief Underlying high-level WebSocket server. */
+    Server server_;
+
+    /** @brief Registered typed routes. */
+    std::vector<Route> routes_;
   };
 
 } // namespace vix::websocket
