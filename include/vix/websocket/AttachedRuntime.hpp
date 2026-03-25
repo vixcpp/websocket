@@ -190,14 +190,13 @@ namespace vix
     auto exec_unique = vix::experimental::make_threadpool_executor(4, 8, 0);
     std::shared_ptr<vix::executor::IExecutor> exec_shared{std::move(exec_unique)};
 
-    vix::App app{exec_shared};
+    vix::App app;
     vix::websocket::Server ws{cfg, exec_shared};
 
     fn(app, ws);
 
     run_http_and_ws(app, ws, port);
   }
-
   /**
    * @brief Convenience overload using default config path and port.
    *
