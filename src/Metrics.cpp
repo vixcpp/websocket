@@ -343,7 +343,7 @@ namespace vix::websocket
 
       listener->listen(ep);
 
-      log.log(vix::utils::Logger::Level::Info,
+      log.log(vix::utils::Logger::Level::Debug,
               "[ws] metrics listening {}:{}  (GET /metrics)",
               address,
               port);

@@ -14,28 +14,31 @@
 #include <vix/websocket/App.hpp>
 #include <vix/websocket/protocol.hpp>
 
+#include <stdexcept>
 #include <utility>
 
 namespace vix::websocket
 {
-  using vix::experimental::make_threadpool_executor;
 
   App::App(
       const std::string &configPath,
-      std::size_t minThreads,
-      std::size_t maxThreads,
-      int defaultPrio)
+      std::shared_ptr<vix::executor::RuntimeExecutor> executor)
       : config_(configPath),
-        executor_(make_threadpool_executor(minThreads, maxThreads, defaultPrio)),
+        executor_(std::move(executor)),
         server_(config_, executor_)
   {
+    if (!executor_)
+    {
+      throw std::invalid_argument(
+          "vix::websocket::App requires a valid runtime executor");
+    }
+
     install_dispatcher();
   }
 
   App &App::ws(const std::string &endpoint, TypedHandler handler)
   {
     routes_.push_back(Route{endpoint, std::move(handler)});
-
     install_dispatcher();
     return *this;
   }

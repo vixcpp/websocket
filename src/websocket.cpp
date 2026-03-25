@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <system_error>
 #include <thread>
@@ -76,11 +77,12 @@ namespace vix::websocket
       (void)thread_index;
 #endif
     }
+
   } // namespace
 
   LowLevelServer::LowLevelServer(
       vix::config::Config &coreConfig,
-      std::shared_ptr<vix::executor::IExecutor> executor,
+      std::shared_ptr<vix::executor::RuntimeExecutor> executor,
       std::shared_ptr<Router> router)
       : coreConfig_(coreConfig),
         wsConfig_(Config::from_core(coreConfig_)),
@@ -93,12 +95,19 @@ namespace vix::websocket
         logged_listen_(false),
         boundPort_(0)
   {
+    if (!executor_)
+    {
+      throw std::invalid_argument(
+          "vix::websocket::LowLevelServer requires a valid runtime executor");
+    }
+
     const int port = coreConfig_.getInt("websocket.port", 9090);
     if ((port != 0 && port < 1024) || port > 65535)
     {
-      logger().log(Logger::Level::Error,
-                   "[ws] port out of range (1024-65535): {}",
-                   port);
+      logger().log(
+          Logger::Level::Error,
+          "[ws] port out of range (1024-65535): {}",
+          port);
       throw std::invalid_argument("Invalid WebSocket port");
     }
 
@@ -152,10 +161,11 @@ namespace vix::websocket
     }
     catch (const std::exception &e)
     {
-      logger().log(Logger::Level::Error,
-                   "[ws] listener init failed on port {}: {}",
-                   static_cast<unsigned int>(port),
-                   e.what());
+      logger().log(
+          Logger::Level::Error,
+          "[ws] listener init failed on port {}: {}",
+          static_cast<unsigned int>(port),
+          e.what());
       throw;
     }
   }
@@ -183,10 +193,11 @@ namespace vix::websocket
 
     if (!logged_listen_.exchange(true, std::memory_order_acq_rel))
     {
-      logger().log(Logger::Level::Info,
-                   "[ws] listening on {}:{}",
-                   coreConfig_.getString("websocket.host", "0.0.0.0"),
-                   boundPort_.load(std::memory_order_relaxed));
+      logger().log(
+          Logger::Level::Debug,
+          "[ws] listening on {}:{}",
+          coreConfig_.getString("websocket.host", "0.0.0.0"),
+          boundPort_.load(std::memory_order_relaxed));
 
       spawn_detached(*ioContext_, accept_loop());
     }
@@ -243,9 +254,10 @@ namespace vix::websocket
           }
         }
 
-        logger().log(Logger::Level::Debug,
-                     "[ws] accept error ({})",
-                     e.what());
+        logger().log(
+            Logger::Level::Debug,
+            "[ws] accept error ({})",
+            e.what());
       }
     }
 
@@ -271,20 +283,23 @@ namespace vix::websocket
             }
             catch (const std::exception &e)
             {
-              logger().log(Logger::Level::Error,
-                           "[ws] io thread {} error ({})",
-                           i,
-                           e.what());
+              logger().log(
+                  Logger::Level::Error,
+                  "[ws] io thread {} error ({})",
+                  i,
+                  e.what());
             }
 
-            logger().log(Logger::Level::Debug,
-                         "[ws] io thread {} finished",
-                         i);
+            logger().log(
+                Logger::Level::Debug,
+                "[ws] io thread {} finished",
+                i);
           });
     }
   }
 
-  vix::async::core::task<void> LowLevelServer::handle_client(std::unique_ptr<tcp_stream> stream)
+  vix::async::core::task<void> LowLevelServer::handle_client(
+      std::unique_ptr<tcp_stream> stream)
   {
     if (!stream)
     {
@@ -303,9 +318,10 @@ namespace vix::websocket
     }
     catch (const std::exception &e)
     {
-      logger().log(Logger::Level::Error,
-                   "[ws] failed to create or run session ({})",
-                   e.what());
+      logger().log(
+          Logger::Level::Error,
+          "[ws] failed to create or run session ({})",
+          e.what());
 
       close_stream(std::move(stream));
     }
