@@ -176,6 +176,12 @@ namespace vix::websocket
 
     /** @brief Effective bound port, useful when binding to port 0. */
     std::atomic<int> boundPort_{0};
+
+    /** @brief Protects the join phase against concurrent callers. */
+    mutable std::mutex joinMutex_;
+
+    /** @brief Ensures IO worker threads are joined only once. */
+    std::atomic<bool> threadsJoined_{false};
   };
 
 } // namespace vix::websocket

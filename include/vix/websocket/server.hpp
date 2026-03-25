@@ -217,12 +217,35 @@ namespace vix::websocket
     }
 
     /**
+     * @brief Request an asynchronous stop of the WebSocket engine.
+     *
+     * This function is non-blocking and only signals shutdown to the internal
+     * low-level engine. It does not join worker threads.
+     */
+    void stop_async()
+    {
+      engine_.stop_async();
+    }
+
+    /**
+     * @brief Join internal WebSocket worker threads.
+     *
+     * This function blocks until the low-level engine threads have exited.
+     */
+    void join()
+    {
+      engine_.join_threads();
+    }
+
+    /**
      * @brief Stop the WebSocket engine and join its internal threads.
+     *
+     * This is the blocking shutdown path.
      */
     void stop()
     {
-      engine_.stop_async();
-      engine_.join_threads();
+      stop_async();
+      join();
     }
 
     /**
