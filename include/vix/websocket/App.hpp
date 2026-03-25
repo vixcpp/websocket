@@ -13,8 +13,10 @@
 #ifndef VIX_WEBSOCKET_APP_HPP
 #define VIX_WEBSOCKET_APP_HPP
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,8 @@ namespace vix::websocket
         const std::string &configPath,
         std::shared_ptr<vix::executor::RuntimeExecutor> executor);
 
+    ~App() noexcept;
+
     App(const App &) = delete;
     App &operator=(const App &) = delete;
     App(App &&) = delete;
@@ -79,9 +83,11 @@ namespace vix::websocket
     void run_blocking();
 
     /**
-     * @brief Stop the WebSocket server.
+     * @brief Stop the WebSocket app and shared executor.
+     *
+     * Safe to call multiple times.
      */
-    void stop();
+    void stop() noexcept;
 
     /**
      * @brief Access the underlying WebSocket server.
@@ -128,6 +134,14 @@ namespace vix::websocket
      */
     void install_dispatcher();
 
+    /**
+     * @brief Dispatch one typed message to all registered handlers.
+     */
+    void dispatch_typed_message(
+        Session &session,
+        const std::string &type,
+        const vix::json::kvs &payload);
+
   private:
     /** @brief Application configuration source. */
     vix::config::Config config_;
@@ -140,6 +154,12 @@ namespace vix::websocket
 
     /** @brief Registered typed routes. */
     std::vector<Route> routes_;
+
+    /** @brief Protects stop() from concurrent/double shutdown. */
+    mutable std::mutex stopMutex_;
+
+    /** @brief Indicates whether shutdown was already requested. */
+    std::atomic<bool> stopped_{false};
   };
 
 } // namespace vix::websocket

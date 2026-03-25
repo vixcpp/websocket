@@ -15,11 +15,9 @@
 #define VIX_ATTACHED_RUNTIME_HPP
 
 #include <atomic>
-#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <utility>
 
 #include <vix/app/App.hpp>
@@ -36,8 +34,12 @@ namespace vix::websocket
   /**
    * @brief Runs a WebSocket server alongside an HTTP app, with shared lifecycle.
    *
-   * Starts the WebSocket server on a dedicated thread and stops it when the HTTP
-   * app requests shutdown or when this object is destroyed.
+   * Starts the WebSocket server immediately and coordinates shutdown with the attached HTTP
+   * application.
+   *
+   * Important lifecycle rule:
+   * - The HTTP shutdown callback only requests an asynchronous stop.
+   * - The final blocking shutdown is executed from an external safe control path.
    */
   class AttachedRuntime
   {
@@ -45,40 +47,41 @@ namespace vix::websocket
     /**
      * @brief Attach a WebSocket server to an existing HTTP app.
      *
-     * Starts the WebSocket server in a background thread and registers an app
-     * shutdown callback to stop the WebSocket runtime.
+     * Starts the WebSocket server immediately and registers an app shutdown
+     * callback that requests a non-blocking WebSocket stop.
      *
      * @param app HTTP application instance.
      * @param ws WebSocket server instance.
+     * @param exec Shared runtime executor.
      */
-    AttachedRuntime(vix::App &app, vix::websocket::Server &ws)
-        : app_(app), ws_(ws), wsThread_(), stopped_(false)
+    AttachedRuntime(
+        vix::App &app,
+        vix::websocket::Server &ws,
+        std::shared_ptr<vix::executor::RuntimeExecutor> exec)
+        : app_(app),
+          ws_(ws),
+          exec_(std::move(exec)),
+          stop_requested_(false),
+          finalized_(false)
     {
-      wsThread_ = std::thread(
-          [this]()
-          {
-            vix::utils::console_wait_banner();
-            ws_.start();
-
-            while (!stopped_.load(std::memory_order_relaxed))
-            {
-              std::this_thread::sleep_for(std::chrono::milliseconds(250));
-            }
-          });
+      vix::utils::console_wait_banner();
+      ws_.start();
 
       app_.set_shutdown_callback(
           [this]()
           {
-            stop();
+            request_stop();
           });
     }
 
     /**
-     * @brief Stop the runtime if still running.
+     * @brief Finalize shutdown if still needed.
+     *
+     * This destructor is defensive and idempotent.
      */
-    ~AttachedRuntime()
+    ~AttachedRuntime() noexcept
     {
-      stop();
+      finalize_shutdown();
     }
 
     AttachedRuntime(const AttachedRuntime &) = delete;
@@ -87,23 +90,66 @@ namespace vix::websocket
     AttachedRuntime &operator=(AttachedRuntime &&) = delete;
 
     /**
-     * @brief Stop the WebSocket server and join the worker thread.
+     * @brief Request an asynchronous WebSocket shutdown.
      *
-     * Safe to call multiple times.
+     * This function is idempotent and intentionally non-blocking.
+     * It is safe to call from a shutdown callback running inside a server
+     * worker thread.
      */
-    void stop() noexcept
+    void request_stop() noexcept
     {
       bool expected = false;
-      if (!stopped_.compare_exchange_strong(expected, true))
+      if (!stop_requested_.compare_exchange_strong(
+              expected,
+              true,
+              std::memory_order_acq_rel,
+              std::memory_order_acquire))
       {
         return;
       }
 
-      ws_.stop();
-
-      if (wsThread_.joinable())
+      try
       {
-        wsThread_.join();
+        ws_.stop_async();
+      }
+      catch (...)
+      {
+      }
+    }
+
+    /**
+     * @brief Perform the final blocking shutdown exactly once.
+     *
+     * Order matters:
+     * 1. stop websocket blocking
+     * 2. stop shared executor blocking
+     */
+    void finalize_shutdown() noexcept
+    {
+      std::lock_guard<std::mutex> lock(finalize_mutex_);
+
+      if (finalized_.exchange(true, std::memory_order_acq_rel))
+      {
+        return;
+      }
+
+      try
+      {
+        ws_.stop();
+      }
+      catch (...)
+      {
+      }
+
+      try
+      {
+        if (exec_)
+        {
+          exec_->stop();
+        }
+      }
+      catch (...)
+      {
       }
     }
 
@@ -114,11 +160,17 @@ namespace vix::websocket
     /** @brief Attached WebSocket server. */
     vix::websocket::Server &ws_;
 
-    /** @brief Background thread driving the WebSocket runtime. */
-    std::thread wsThread_;
+    /** @brief Shared runtime executor. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> exec_;
 
-    /** @brief Idempotent stop flag. */
-    std::atomic<bool> stopped_;
+    /** @brief Idempotent asynchronous stop flag. */
+    std::atomic<bool> stop_requested_;
+
+    /** @brief Ensures final shutdown happens once. */
+    std::atomic<bool> finalized_;
+
+    /** @brief Protects final shutdown sequence. */
+    std::mutex finalize_mutex_;
   };
 
 } // namespace vix::websocket
@@ -148,16 +200,18 @@ namespace vix
   /**
    * @brief Run HTTP and WebSocket servers together in blocking mode.
    *
-   * Registers WebSocket OpenAPI docs once, starts the WebSocket runtime,
-   * then starts the HTTP server and waits until shutdown.
+   * Registers WebSocket OpenAPI docs once, starts the attached WebSocket
+   * runtime, then starts the HTTP server and waits until shutdown.
    *
    * @param app HTTP application instance.
    * @param ws WebSocket server instance.
+   * @param exec Shared runtime executor.
    * @param port HTTP listening port.
    */
   inline void run_http_and_ws(
       vix::App &app,
       vix::websocket::Server &ws,
+      std::shared_ptr<vix::executor::RuntimeExecutor> exec,
       int port = 8080)
   {
     register_ws_openapi_docs_once();
@@ -168,7 +222,7 @@ namespace vix
       vix::openapi::register_openapi_and_docs(*r, "Vix API", "1.33.0");
     }
 
-    vix::websocket::AttachedRuntime runtime{app, ws};
+    vix::websocket::AttachedRuntime runtime{app, ws, exec};
 
     app.listen(
         port,
@@ -192,6 +246,8 @@ namespace vix
 
     app.wait();
     app.close();
+
+    runtime.finalize_shutdown();
   }
 
   /**
@@ -223,7 +279,7 @@ namespace vix
 
     fn(app, ws);
 
-    run_http_and_ws(app, ws, port);
+    run_http_and_ws(app, ws, exec, port);
   }
 
   /**
@@ -240,4 +296,4 @@ namespace vix
 
 } // namespace vix
 
-#endif
+#endif // VIX_ATTACHED_RUNTIME_HPP

@@ -93,7 +93,9 @@ namespace vix::websocket
         ioThreads_(),
         stopRequested_(false),
         logged_listen_(false),
-        boundPort_(0)
+        boundPort_(0),
+        joinMutex_(),
+        threadsJoined_(false)
   {
     if (!executor_)
     {
@@ -126,7 +128,11 @@ namespace vix::websocket
     try
     {
       stop_async();
-      join_threads();
+
+      if (!threadsJoined_.load(std::memory_order_acquire))
+      {
+        join_threads();
+      }
     }
     catch (...)
     {
@@ -205,22 +211,28 @@ namespace vix::websocket
 
   vix::async::core::task<void> LowLevelServer::accept_loop()
   {
+    logger().log(Logger::Level::Debug, "[ws] accept_loop: started");
+
     while (!stopRequested_.load(std::memory_order_acquire))
     {
       if (!listener_ || !listener_->is_open())
       {
+        logger().log(Logger::Level::Debug, "[ws] accept_loop: listener closed");
         break;
       }
 
       try
       {
+        logger().log(Logger::Level::Debug, "[ws] accept_loop: waiting accept");
         auto stream = co_await listener_->async_accept();
+        logger().log(Logger::Level::Debug, "[ws] accept_loop: accept resumed");
 
         if (!stream)
         {
           if (stopRequested_.load(std::memory_order_acquire) ||
               !listener_ || !listener_->is_open())
           {
+            logger().log(Logger::Level::Debug, "[ws] accept_loop: null stream during shutdown");
             break;
           }
 
@@ -230,6 +242,7 @@ namespace vix::websocket
         if (stopRequested_.load(std::memory_order_acquire))
         {
           close_stream(std::move(stream));
+          logger().log(Logger::Level::Debug, "[ws] accept_loop: stop requested after accept");
           break;
         }
 
@@ -237,9 +250,12 @@ namespace vix::websocket
       }
       catch (const std::exception &e)
       {
+        logger().log(Logger::Level::Debug, "[ws] accept_loop: exception ({})", e.what());
+
         if (stopRequested_.load(std::memory_order_acquire) ||
             !listener_ || !listener_->is_open())
         {
+          logger().log(Logger::Level::Debug, "[ws] accept_loop: exiting after shutdown");
           break;
         }
 
@@ -250,17 +266,14 @@ namespace vix::websocket
           if (code == std::errc::operation_canceled ||
               code == std::errc::bad_file_descriptor)
           {
+            logger().log(Logger::Level::Debug, "[ws] accept_loop: canceled/bad fd");
             break;
           }
         }
-
-        logger().log(
-            Logger::Level::Debug,
-            "[ws] accept error ({})",
-            e.what());
       }
     }
 
+    logger().log(Logger::Level::Debug, "[ws] accept_loop: finished");
     co_return;
   }
 
@@ -368,6 +381,8 @@ namespace vix::websocket
       return;
     }
 
+    logger().log(Logger::Level::Debug, "[ws] stop_async: begin");
+
     try
     {
       if (listener_)
@@ -383,24 +398,68 @@ namespace vix::websocket
     {
       ioContext_->stop();
     }
+
+    logger().log(Logger::Level::Debug, "[ws] stop_async: end");
   }
 
   void LowLevelServer::join_threads()
   {
-    if (ioContext_)
+    std::lock_guard<std::mutex> lock(joinMutex_);
+
+    if (threadsJoined_.load(std::memory_order_acquire))
     {
-      ioContext_->stop();
+      logger().log(Logger::Level::Debug, "[ws] join_threads: already joined");
+      return;
     }
 
-    for (auto &t : ioThreads_)
+    logger().log(Logger::Level::Debug, "[ws] join_threads: begin");
+
+    const std::thread::id current_id = std::this_thread::get_id();
+    bool deferred_completion = false;
+
+    for (std::size_t i = 0; i < ioThreads_.size(); ++i)
     {
-      if (t.joinable())
+      if (!ioThreads_[i].joinable())
       {
-        t.join();
+        continue;
       }
+
+      if (ioThreads_[i].get_id() == current_id)
+      {
+        logger().log(
+            Logger::Level::Warn,
+            "[ws] join_threads: detaching current io thread {}",
+            i);
+        ioThreads_[i].detach();
+        deferred_completion = true;
+        continue;
+      }
+
+      logger().log(
+          Logger::Level::Debug,
+          "[ws] join_threads: joining io thread {}",
+          i);
+      ioThreads_[i].join();
+      logger().log(
+          Logger::Level::Debug,
+          "[ws] join_threads: joined io thread {}",
+          i);
     }
 
     ioThreads_.clear();
-  }
 
+    if (!deferred_completion)
+    {
+      threadsJoined_.store(true, std::memory_order_release);
+      logger().log(Logger::Level::Debug, "[ws] join_threads: fully completed");
+    }
+    else
+    {
+      logger().log(
+          Logger::Level::Debug,
+          "[ws] join_threads: deferred final completion");
+    }
+
+    logger().log(Logger::Level::Debug, "[ws] join_threads: end");
+  }
 } // namespace vix::websocket

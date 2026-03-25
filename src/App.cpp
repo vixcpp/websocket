@@ -36,6 +36,11 @@ namespace vix::websocket
     install_dispatcher();
   }
 
+  App::~App() noexcept
+  {
+    stop();
+  }
+
   App &App::ws(const std::string &endpoint, TypedHandler handler)
   {
     routes_.push_back(Route{endpoint, std::move(handler)});
@@ -50,14 +55,22 @@ namespace vix::websocket
                const std::string &type,
                const vix::json::kvs &payload)
         {
-          for (auto &route : routes_)
-          {
-            if (route.handler)
-            {
-              route.handler(session, type, payload);
-            }
-          }
+          dispatch_typed_message(session, type, payload);
         });
+  }
+
+  void App::dispatch_typed_message(
+      Session &session,
+      const std::string &type,
+      const vix::json::kvs &payload)
+  {
+    for (auto &route : routes_)
+    {
+      if (route.handler)
+      {
+        route.handler(session, type, payload);
+      }
+    }
   }
 
   void App::run_blocking()
@@ -65,9 +78,33 @@ namespace vix::websocket
     server_.listen_blocking();
   }
 
-  void App::stop()
+  void App::stop() noexcept
   {
-    server_.stop();
+    std::lock_guard<std::mutex> lock(stopMutex_);
+
+    if (stopped_.exchange(true, std::memory_order_acq_rel))
+    {
+      return;
+    }
+
+    try
+    {
+      server_.stop();
+    }
+    catch (...)
+    {
+    }
+
+    try
+    {
+      if (executor_)
+      {
+        executor_->stop();
+      }
+    }
+    catch (...)
+    {
+    }
   }
 
 } // namespace vix::websocket
