@@ -254,11 +254,18 @@ namespace vix::websocket
         }
         catch (const std::exception &e)
         {
+          if (!listener || !listener->is_open())
+          {
+            break;
+          }
+
           log.log(vix::utils::Logger::Level::Debug,
                   "[ws] metrics accept error ({})",
                   e.what());
         }
       }
+
+      co_return;
     }
 
   } // namespace
@@ -334,8 +341,7 @@ namespace vix::websocket
       ep.host = address;
       ep.port = port;
 
-      auto listen_task = listener->async_listen(ep);
-      std::move(listen_task).start(ioc->get_scheduler());
+      listener->listen(ep);
 
       log.log(vix::utils::Logger::Level::Info,
               "[ws] metrics listening {}:{}  (GET /metrics)",

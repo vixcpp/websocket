@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -145,8 +146,7 @@ namespace vix::websocket
       endpoint.host = coreConfig_.getString("websocket.host", "0.0.0.0");
       endpoint.port = port;
 
-      auto listen_task = listener_->async_listen(endpoint);
-      std::move(listen_task).start(ioContext_->get_scheduler());
+      listener_->listen(endpoint);
 
       boundPort_.store(static_cast<int>(port), std::memory_order_relaxed);
     }
@@ -165,8 +165,8 @@ namespace vix::websocket
     init_logger_from_env_once();
     vix::utils::console_wait_banner();
 
-    start_accept();
     start_io_threads();
+    start_accept();
   }
 
   void LowLevelServer::start_accept()
@@ -176,51 +176,76 @@ namespace vix::websocket
       return;
     }
 
+    if (!listener_ || !listener_->is_open())
+    {
+      throw std::runtime_error("websocket listener is not open");
+    }
+
     if (!logged_listen_.exchange(true, std::memory_order_acq_rel))
     {
       logger().log(Logger::Level::Info,
                    "[ws] listening on {}:{}",
                    coreConfig_.getString("websocket.host", "0.0.0.0"),
                    boundPort_.load(std::memory_order_relaxed));
-    }
 
-    spawn_detached(*ioContext_, accept_loop());
+      spawn_detached(*ioContext_, accept_loop());
+    }
   }
 
   vix::async::core::task<void> LowLevelServer::accept_loop()
   {
     while (!stopRequested_.load(std::memory_order_acquire))
     {
+      if (!listener_ || !listener_->is_open())
+      {
+        break;
+      }
+
       try
       {
         auto stream = co_await listener_->async_accept();
 
         if (!stream)
         {
+          if (stopRequested_.load(std::memory_order_acquire) ||
+              !listener_ || !listener_->is_open())
+          {
+            break;
+          }
+
           continue;
         }
 
         if (stopRequested_.load(std::memory_order_acquire))
         {
           close_stream(std::move(stream));
-          co_return;
+          break;
         }
 
         spawn_detached(*ioContext_, handle_client(std::move(stream)));
       }
       catch (const std::exception &e)
       {
-        if (!stopRequested_.load(std::memory_order_acquire))
-        {
-          logger().log(Logger::Level::Debug,
-                       "[ws] accept error ({})",
-                       e.what());
-        }
-
-        if (stopRequested_.load(std::memory_order_acquire))
+        if (stopRequested_.load(std::memory_order_acquire) ||
+            !listener_ || !listener_->is_open())
         {
           break;
         }
+
+        const auto *se = dynamic_cast<const std::system_error *>(&e);
+        if (se)
+        {
+          const auto code = se->code();
+          if (code == std::errc::operation_canceled ||
+              code == std::errc::bad_file_descriptor)
+          {
+            break;
+          }
+        }
+
+        logger().log(Logger::Level::Debug,
+                     "[ws] accept error ({})",
+                     e.what());
       }
     }
 
