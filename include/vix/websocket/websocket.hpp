@@ -98,7 +98,9 @@ namespace vix::websocket
      *
      * @param port Port to bind.
      */
-    void init_listener(unsigned short port);
+    task<void> init_listener(unsigned short port);
+
+    task<void> start_server();
 
     /**
      * @brief Begin accepting incoming TCP connections.

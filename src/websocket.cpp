@@ -113,8 +113,6 @@ namespace vix::websocket
       throw std::invalid_argument("Invalid WebSocket port");
     }
 
-    init_listener(static_cast<unsigned short>(port));
-
     logger().log(
         Logger::Level::Debug,
         "[ws] config maxMessageSize={} idleTimeout={}s pingInterval={}s",
@@ -147,7 +145,7 @@ namespace vix::websocket
     return ep;
   }
 
-  void LowLevelServer::init_listener(unsigned short port)
+  vix::async::core::task<void> LowLevelServer::init_listener(unsigned short port)
   {
     listener_ = vix::async::net::make_tcp_listener(*ioContext_);
     if (!listener_)
@@ -161,7 +159,7 @@ namespace vix::websocket
       endpoint.host = coreConfig_.getString("websocket.host", "0.0.0.0");
       endpoint.port = port;
 
-      listener_->listen(endpoint);
+      co_await listener_->async_listen(endpoint);
 
       boundPort_.store(static_cast<int>(port), std::memory_order_relaxed);
     }
@@ -174,6 +172,38 @@ namespace vix::websocket
           e.what());
       throw;
     }
+
+    co_return;
+  }
+
+  vix::async::core::task<void> LowLevelServer::start_server()
+  {
+    const int port = coreConfig_.getInt("websocket.port", 9090);
+
+    co_await init_listener(static_cast<unsigned short>(port));
+
+    if (stopRequested_.load(std::memory_order_acquire))
+    {
+      co_return;
+    }
+
+    if (!listener_ || !listener_->is_open())
+    {
+      throw std::runtime_error("websocket listener is not open");
+    }
+
+    if (!logged_listen_.exchange(true, std::memory_order_acq_rel))
+    {
+      logger().log(
+          Logger::Level::Debug,
+          "[ws] listening on {}:{}",
+          coreConfig_.getString("websocket.host", "0.0.0.0"),
+          boundPort_.load(std::memory_order_relaxed));
+
+      spawn_detached(*ioContext_, accept_loop());
+    }
+
+    co_return;
   }
 
   void LowLevelServer::run()
@@ -182,7 +212,7 @@ namespace vix::websocket
     vix::utils::console_wait_banner();
 
     start_io_threads();
-    start_accept();
+    spawn_detached(*ioContext_, start_server());
   }
 
   void LowLevelServer::start_accept()

@@ -268,6 +268,29 @@ namespace vix::websocket
       co_return;
     }
 
+    task<void> start_metrics_listener(std::shared_ptr<io_context> ioc,
+                                      std::unique_ptr<tcp_listener> listener,
+                                      WebSocketMetrics &metrics,
+                                      std::string address,
+                                      std::uint16_t port)
+    {
+      auto &log = vix::utils::Logger::getInstance();
+
+      tcp_endpoint ep{};
+      ep.host = address;
+      ep.port = port;
+
+      co_await listener->async_listen(ep);
+
+      log.log(vix::utils::Logger::Level::Debug,
+              "[ws] metrics listening {}:{}  (GET /metrics)",
+              address,
+              port);
+
+      spawn_detached(*ioc, metrics_accept_loop(ioc, std::move(listener), metrics));
+      co_return;
+    }
+
   } // namespace
 
   std::string WebSocketMetrics::render_prometheus() const
@@ -337,18 +360,14 @@ namespace vix::websocket
         throw std::runtime_error("failed to create metrics tcp listener");
       }
 
-      tcp_endpoint ep{};
-      ep.host = address;
-      ep.port = port;
+      spawn_detached(
+          *ioc,
+          start_metrics_listener(ioc,
+                                 std::move(listener),
+                                 metrics,
+                                 address,
+                                 port));
 
-      listener->listen(ep);
-
-      log.log(vix::utils::Logger::Level::Debug,
-              "[ws] metrics listening {}:{}  (GET /metrics)",
-              address,
-              port);
-
-      spawn_detached(*ioc, metrics_accept_loop(ioc, std::move(listener), metrics));
       ioc->run();
     }
     catch (const std::exception &e)
