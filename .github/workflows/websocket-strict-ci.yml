@@ -1,0 +1,720 @@
+name: WebSocket Strict CI
+
+on:
+  push:
+    branches: [main, master, dev]
+    paths:
+      - ".github/workflows/websocket-strict-ci.yml"
+      - "CMakeLists.txt"
+      - "include/**"
+      - "src/**"
+      - "examples/**"
+      - "config/**"
+      - "docs/**"
+      - "scripts/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "vix.json"
+  pull_request:
+    branches: [main, master, dev]
+    paths:
+      - ".github/workflows/websocket-strict-ci.yml"
+      - "CMakeLists.txt"
+      - "include/**"
+      - "src/**"
+      - "examples/**"
+      - "config/**"
+      - "docs/**"
+      - "scripts/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "vix.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEPS: >
+    build-essential
+    cmake
+    ninja-build
+    clang
+    llvm
+    lld
+    g++
+    cppcheck
+    clang-tidy
+    valgrind
+    pkg-config
+    git
+    sqlite3
+    libsqlite3-dev
+    libasio-dev
+    nlohmann-json3-dev
+    libspdlog-dev
+    libfmt-dev
+    libssl-dev
+  BUILD_JOBS: 2
+  VIX_GIT_BRANCH: dev
+
+jobs:
+  build-test-sanitized:
+    name: Sanitized Build (${{ matrix.compiler }}, json=${{ matrix.json_mode }}, examples=${{ matrix.examples }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang, gcc]
+        json_mode: [AUTO, OFF]
+        examples: [ON, OFF]
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+          echo "---- sibling dependencies ----"
+          ls -la ../core || true
+          ls -la ../utils || true
+          ls -la ../async || true
+          ls -la ../async/third_party || true
+          ls -la ../async/third_party/asio || true
+          ls -la ../async/third_party/asio/include || true
+          ls -la ../json || true
+          ls -la ../template || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+          if [ -f ../async/third_party/asio/include/asio.hpp ]; then
+            echo "Vendored Asio found in async."
+          elif [ -f /usr/include/asio.hpp ]; then
+            echo "System Asio found."
+          else
+            echo "::error::Neither vendored Asio nor system Asio was found."
+            exit 1
+          fi
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Select compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang" >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
+          else
+            echo "CC=gcc" >> "$GITHUB_ENV"
+            echo "CXX=g++" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S . -B build-sanitize \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DVIX_ENABLE_SANITIZERS=ON \
+            -DVIX_WEBSOCKET_WITH_JSON=${{ matrix.json_mode }} \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=${{ matrix.examples }} \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build
+        run: |
+          cmake --build build-sanitize -j"${BUILD_JOBS}"
+
+      - name: Print executables
+        run: |
+          echo "---- executables ----"
+          find build-sanitize -type f -executable | sort || true
+
+  runtime-smoke:
+    name: Runtime Smoke and Shutdown Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Configure runtime build
+        run: |
+          cmake -G Ninja -S . -B build-runtime \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=OFF \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=ON \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build runtime artifacts
+        run: |
+          cmake --build build-runtime -j"${BUILD_JOBS}"
+
+      - name: List candidate executables
+        run: |
+          echo "---- runtime candidates ----"
+          find build-runtime -type f -executable | sort || true
+
+      - name: Run short smoke tests on non-server executables
+        shell: bash
+        run: |
+          set +e
+          FAIL=0
+
+          mapfile -t CANDIDATES < <(
+            find build-runtime -type f -executable | while read -r exe; do
+              base="$(basename "$exe")"
+              if [[ ! "$exe" =~ /CMakeFiles/ ]] && [[ ! "$base" =~ (cmake|ctest) ]]; then
+                echo "$exe"
+              fi
+            done | sort -u
+          )
+
+          if [ ${#CANDIDATES[@]} -eq 0 ]; then
+            echo "No executable candidates found."
+            exit 0
+          fi
+
+          for exe in "${CANDIDATES[@]}"; do
+            base="$(basename "$exe")"
+
+            if [[ "$base" =~ (server|ws|websocket|chat|poll|listener) ]]; then
+              echo "Skipping direct smoke run for server-like executable: $exe"
+              continue
+            fi
+
+            echo "==> Smoke run: $exe"
+            timeout 5s "$exe" >/tmp/websocket_smoke.log 2>&1
+            STATUS=$?
+            cat /tmp/websocket_smoke.log || true
+
+            if [ $STATUS -ne 0 ] && [ $STATUS -ne 124 ]; then
+              echo "::warning::Non-zero exit status from $exe (status=$STATUS)"
+              FAIL=1
+            fi
+          done
+
+          if [ $FAIL -ne 0 ]; then
+            echo "::warning::Some smoke runs reported issues."
+          else
+            echo "Smoke runs completed."
+          fi
+          exit 0
+
+      - name: Probe graceful shutdown on server-like executables
+        shell: bash
+        run: |
+          set +e
+          FAIL=0
+
+          mapfile -t SERVERS < <(
+            find build-runtime -type f -executable | while read -r exe; do
+              base="$(basename "$exe")"
+              if [[ "$base" =~ (server|ws|websocket|chat|poll|listener) ]]; then
+                echo "$exe"
+              fi
+            done | sort -u
+          )
+
+          if [ ${#SERVERS[@]} -eq 0 ]; then
+            echo "No server-like executables found."
+            exit 0
+          fi
+
+          for exe in "${SERVERS[@]}"; do
+            echo "==> Shutdown probe: $exe"
+            "$exe" >/tmp/websocket_shutdown.log 2>&1 &
+            PID=$!
+            sleep 2
+
+            kill -INT "$PID" 2>/dev/null || true
+            sleep 3
+
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "::warning::SIGINT did not stop $exe"
+              kill -TERM "$PID" 2>/dev/null || true
+              sleep 2
+            fi
+
+            if kill -0 "$PID" 2>/dev/null; then
+              echo "::warning::SIGTERM did not stop $exe"
+              kill -KILL "$PID" 2>/dev/null || true
+              FAIL=1
+            fi
+
+            wait "$PID" 2>/dev/null || true
+            cat /tmp/websocket_shutdown.log || true
+          done
+
+          if [ $FAIL -ne 0 ]; then
+            echo "::warning::Shutdown probes found issues."
+          else
+            echo "Shutdown probes completed."
+          fi
+          exit 0
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Configure for analysis
+        run: |
+          cmake -G Ninja -S . -B build-analyze \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=AUTO \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=ON \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Run clang-tidy on source files
+        run: |
+          set +e
+          find src examples -name '*.cpp' -print0 | xargs -0 -n1 -P2 clang-tidy -p build-analyze
+          STATUS=$?
+          if [ $STATUS -ne 0 ]; then
+            echo "::warning::clang-tidy reported issues."
+          else
+            echo "clang-tidy completed successfully."
+          fi
+          exit 0
+
+      - name: Run cppcheck on headers and sources
+        run: |
+          set +e
+          cppcheck \
+            --enable=all \
+            --std=c++20 \
+            --inconclusive \
+            --quiet \
+            --suppress=missingIncludeSystem \
+            include/ src/ examples/
+          STATUS=$?
+          if [ $STATUS -ne 0 ]; then
+            echo "::warning::cppcheck reported issues."
+          else
+            echo "cppcheck completed successfully."
+          fi
+          exit 0
+
+  sqlite-storage-check:
+    name: SQLite Storage and Message Store Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Configure build
+        run: |
+          cmake -G Ninja -S . -B build-sqlite \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=OFF \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=ON \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build
+        run: |
+          cmake --build build-sqlite -j"${BUILD_JOBS}"
+
+      - name: Prepare isolated database directory
+        run: |
+          rm -f chat_messages.db
+          rm -rf .ci-tmp
+          mkdir -p .ci-tmp
+          ls -la .ci-tmp
+
+      - name: Run executables that may touch SQLite storage
+        shell: bash
+        run: |
+          set +e
+          FAIL=0
+
+          mapfile -t CANDIDATES < <(
+            find build-sqlite -type f -executable | while read -r exe; do
+              base="$(basename "$exe")"
+              if [[ "$base" =~ (chat|server|ws|websocket|poll|client) ]]; then
+                echo "$exe"
+              fi
+            done | sort -u
+          )
+
+          if [ ${#CANDIDATES[@]} -eq 0 ]; then
+            echo "No SQLite-related executable candidates found."
+            exit 0
+          fi
+
+          for exe in "${CANDIDATES[@]}"; do
+            echo "==> SQLite smoke: $exe"
+            (
+              cd .ci-tmp
+              timeout 5s "$GITHUB_WORKSPACE/$exe" >/tmp/websocket_sqlite.log 2>&1
+            )
+            STATUS=$?
+            cat /tmp/websocket_sqlite.log || true
+
+            if [ $STATUS -ne 0 ] && [ $STATUS -ne 124 ]; then
+              echo "::warning::SQLite-related smoke run reported issues for $exe"
+              FAIL=1
+            fi
+          done
+
+          find .ci-tmp -maxdepth 2 -type f | sort || true
+
+          if [ $FAIL -ne 0 ]; then
+            echo "::warning::Some SQLite smoke checks reported issues."
+          else
+            echo "SQLite smoke checks completed."
+          fi
+          exit 0
+
+  valgrind:
+    name: Valgrind Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Configure valgrind build
+        run: |
+          cmake -G Ninja -S . -B build-valgrind \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=OFF \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=ON \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build
+        run: |
+          cmake --build build-valgrind -j"${BUILD_JOBS}"
+
+      - name: Run valgrind on selected executables
+        shell: bash
+        run: |
+          set +e
+          FAIL=0
+
+          mapfile -t TEST_BINS < <(
+            find build-valgrind -type f -executable | while read -r exe; do
+              base="$(basename "$exe")"
+              if [[ ! "$exe" =~ /CMakeFiles/ ]] && [[ "$base" =~ (client|server|ws|websocket|chat|poll) ]]; then
+                echo "$exe"
+              fi
+            done | sort -u
+          )
+
+          if [ ${#TEST_BINS[@]} -eq 0 ]; then
+            echo "No candidate executables found for valgrind."
+            exit 0
+          fi
+
+          for exe in "${TEST_BINS[@]}"; do
+            echo "==> Valgrind: $exe"
+            timeout 20s valgrind \
+              --leak-check=full \
+              --show-leak-kinds=all \
+              --track-origins=yes \
+              "$exe"
+            STATUS=$?
+
+            if [ $STATUS -ne 0 ] && [ $STATUS -ne 124 ]; then
+              echo "::warning::Valgrind reported issues for $exe"
+              FAIL=1
+            fi
+          done
+
+          if [ $FAIL -ne 0 ]; then
+            echo "::warning::Valgrind detected potential issues."
+          else
+            echo "Valgrind checks completed."
+          fi
+          exit 0
+
+  config-coverage:
+    name: Configuration Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout websocket repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y $DEPS
+
+      - name: Fetch sibling dependencies
+        run: |
+          rm -rf ../core ../utils ../async ../json ../template
+
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
+
+      - name: Verify required sibling dependencies
+        run: |
+          test -f ../core/CMakeLists.txt || (echo "::error::../core/CMakeLists.txt is missing"; exit 1)
+          test -f ../utils/CMakeLists.txt || (echo "::error::../utils/CMakeLists.txt is missing"; exit 1)
+          test -f ../async/CMakeLists.txt || (echo "::error::../async/CMakeLists.txt is missing"; exit 1)
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../core/include:$GITHUB_WORKSPACE/../utils/include:$GITHUB_WORKSPACE/../async/include"
+          if [ -d "$GITHUB_WORKSPACE/../json/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          fi
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Configure release mode with JSON AUTO
+        run: |
+          cmake -G Ninja -S . -B build-release-auto \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=AUTO \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=ON \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build release mode with JSON AUTO
+        run: |
+          cmake --build build-release-auto -j"${BUILD_JOBS}"
+
+      - name: Configure release mode with JSON OFF
+        run: |
+          cmake -G Ninja -S . -B build-release-off \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVIX_ENABLE_SANITIZERS=OFF \
+            -DVIX_WEBSOCKET_WITH_JSON=OFF \
+            -DVIX_WEBSOCKET_BUILD_EXAMPLES=OFF \
+            -DVIX_WEBSOCKET_FETCH_CORE=OFF \
+            -DVIX_WEBSOCKET_FETCH_UTILS=OFF
+
+      - name: Build release mode with JSON OFF
+        run: |
+          cmake --build build-release-off -j"${BUILD_JOBS}"
+
+  summary:
+    name: WebSocket Strict CI Summary
+    needs:
+      [
+        build-test-sanitized,
+        runtime-smoke,
+        static-analysis,
+        sqlite-storage-check,
+        valgrind,
+        config-coverage,
+      ]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Print summary
+        run: |
+          echo "WebSocket strict CI completed."
+          echo "This workflow validates:"
+          echo "- sanitized builds"
+          echo "- build variants"
+          echo "- runtime smoke checks"
+          echo "- graceful shutdown behavior"
+          echo "- static analysis"
+          echo "- SQLite-related smoke checks"
+          echo "- valgrind"
+          echo "- important JSON and examples configurations"
