@@ -61,16 +61,39 @@ namespace vix::websocket
         : app_(app),
           ws_(ws),
           exec_(std::move(exec)),
-          stop_requested_(false),
-          finalized_(false)
+          state_(std::make_shared<State>())
     {
       vix::utils::console_wait_banner();
       ws_.start();
 
+      auto state = state_;
+      auto *wsPtr = &ws_;
+
       app_.set_shutdown_callback(
-          [this]()
+          [state, wsPtr]()
           {
-            request_stop();
+            if (!state || !wsPtr)
+            {
+              return;
+            }
+
+            bool expected = false;
+            if (!state->stop_requested.compare_exchange_strong(
+                    expected,
+                    true,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+            {
+              return;
+            }
+
+            try
+            {
+              wsPtr->stop_async();
+            }
+            catch (...)
+            {
+            }
           });
     }
 
@@ -98,8 +121,13 @@ namespace vix::websocket
      */
     void request_stop() noexcept
     {
+      if (!state_)
+      {
+        return;
+      }
+
       bool expected = false;
-      if (!stop_requested_.compare_exchange_strong(
+      if (!state_->stop_requested.compare_exchange_strong(
               expected,
               true,
               std::memory_order_acq_rel,
@@ -126,9 +154,14 @@ namespace vix::websocket
      */
     void finalize_shutdown() noexcept
     {
-      std::lock_guard<std::mutex> lock(finalize_mutex_);
+      if (!state_)
+      {
+        return;
+      }
 
-      if (finalized_.exchange(true, std::memory_order_acq_rel))
+      std::lock_guard<std::mutex> lock(state_->finalize_mutex);
+
+      if (state_->finalized.exchange(true, std::memory_order_acq_rel))
       {
         return;
       }
@@ -154,6 +187,25 @@ namespace vix::websocket
     }
 
   private:
+    /**
+     * @brief Shared shutdown state captured by callbacks.
+     *
+     * This avoids capturing the AttachedRuntime instance directly inside
+     * the HTTP shutdown callback.
+     */
+    struct State
+    {
+      /** @brief Idempotent asynchronous stop flag. */
+      std::atomic<bool> stop_requested{false};
+
+      /** @brief Ensures final shutdown happens once. */
+      std::atomic<bool> finalized{false};
+
+      /** @brief Protects final shutdown sequence. */
+      std::mutex finalize_mutex{};
+    };
+
+  private:
     /** @brief Attached HTTP application. */
     vix::App &app_;
 
@@ -163,14 +215,8 @@ namespace vix::websocket
     /** @brief Shared runtime executor. */
     std::shared_ptr<vix::executor::RuntimeExecutor> exec_;
 
-    /** @brief Idempotent asynchronous stop flag. */
-    std::atomic<bool> stop_requested_;
-
-    /** @brief Ensures final shutdown happens once. */
-    std::atomic<bool> finalized_;
-
-    /** @brief Protects final shutdown sequence. */
-    std::mutex finalize_mutex_;
+    /** @brief Shared shutdown state used by callbacks and finalization. */
+    std::shared_ptr<State> state_;
   };
 
 } // namespace vix::websocket

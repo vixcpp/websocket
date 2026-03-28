@@ -834,15 +834,31 @@ namespace vix::websocket
     heartbeatThread_ = std::thread(
         [weak_self, interval]()
         {
+          constexpr auto step = std::chrono::milliseconds(100);
+          auto waited = std::chrono::milliseconds(0);
+
           while (true)
           {
-            std::this_thread::sleep_for(interval);
-
             auto self = weak_self.lock();
             if (!self)
             {
               return;
             }
+
+            while (waited < interval)
+            {
+              if (self->heartbeatStop_ || self->closing_ || !self->open_)
+              {
+                return;
+              }
+
+              const auto remain = interval - waited;
+              const auto sleep_for = (remain < step) ? remain : step;
+              std::this_thread::sleep_for(sleep_for);
+              waited += std::chrono::duration_cast<std::chrono::milliseconds>(sleep_for);
+            }
+
+            waited = std::chrono::milliseconds(0);
 
             if (self->heartbeatStop_ || self->closing_ || !self->open_)
             {
