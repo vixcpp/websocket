@@ -573,9 +573,10 @@ namespace vix::websocket
         std::vector<std::byte> payload;
         payload.reserve(msg.data.size());
 
-        for (unsigned char ch : msg.data)
+        for (char ch : msg.data)
         {
-          payload.push_back(static_cast<std::byte>(ch));
+          payload.push_back(static_cast<std::byte>(
+              static_cast<unsigned char>(ch)));
         }
 
         frame = detail::build_frame(
