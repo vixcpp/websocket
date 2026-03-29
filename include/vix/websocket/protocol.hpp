@@ -321,7 +321,7 @@ namespace vix::websocket
       std::array<unsigned char, 20> out{};
       const std::uint32_t hs[5] = {h0, h1, h2, h3, h4};
 
-      for (int i = 0; i < 5; ++i)
+      for (std::size_t i = 0; i < 5; ++i)
       {
         out[i * 4 + 0] = static_cast<unsigned char>((hs[i] >> 24) & 0xFFu);
         out[i * 4 + 1] = static_cast<unsigned char>((hs[i] >> 16) & 0xFFu);
