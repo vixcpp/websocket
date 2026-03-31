@@ -22,7 +22,7 @@ namespace vix::websocket
 
   App::App(
       const std::string &configPath,
-      std::shared_ptr<vix::executor::RuntimeExecutor> executor)
+      std::shared_ptr<vix::executor::IExecutor> executor)
       : config_(configPath),
         executor_(std::move(executor)),
         server_(config_, executor_)
@@ -30,7 +30,7 @@ namespace vix::websocket
     if (!executor_)
     {
       throw std::invalid_argument(
-          "vix::websocket::App requires a valid runtime executor");
+          "vix::websocket::App requires a valid executor");
     }
 
     install_dispatcher();
@@ -90,17 +90,6 @@ namespace vix::websocket
     try
     {
       server_.stop();
-    }
-    catch (...)
-    {
-    }
-
-    try
-    {
-      if (executor_)
-      {
-        executor_->stop();
-      }
     }
     catch (...)
     {

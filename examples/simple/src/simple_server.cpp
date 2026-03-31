@@ -16,7 +16,7 @@
  * simplest reference implementation, showing only the essential components:
  *
  *  • Loading configuration (port, timeouts, etc.)
- *  • Creating a RuntimeExecutor for async execution
+ *  • Creating a thread pool executor for async execution
  *  • Starting a WebSocket server instance
  *  • Reacting to connection events (on_open)
  *  • Handling typed JSON messages (on_typed_message)
@@ -28,9 +28,9 @@
  *      The WebSocket server automatically binds to the port defined in
  *      config/config.json and manages all asynchronous I/O.
  *
- * 2. Runtime Integration:
- *      The example uses Vix’s RuntimeExecutor to drive async execution,
- *      aligning the WebSocket layer with the modern Vix runtime architecture.
+ * 2. Executor Integration:
+ *      The example uses a thread pool executor to drive async execution,
+ *      aligning the WebSocket layer with the Vix executor abstraction.
  *
  * 3. Global Broadcast:
  *      Messages received with type "chat.message" are broadcast to all
@@ -67,10 +67,8 @@
  * persistence, metrics, room routing, history replay, and auto-reconnect.
  */
 
-#include <memory>
-
 #include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/experimental/ThreadPoolExecutor.hpp>
 #include <vix/websocket.hpp>
 
 int main()
@@ -80,10 +78,14 @@ int main()
   // Load configuration from config/config.json
   vix::config::Config cfg{"config/config.json"};
 
-  // Runtime executor for async work
-  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+  // Thread pool executor for async work
+  auto exec = vix::experimental::make_threadpool_executor(
+      4, // min threads
+      8, // max threads
+      0  // default priority
+  );
 
-  Server ws(cfg, exec);
+  Server ws(cfg, std::move(exec));
 
   // On new connection: broadcast a welcome system message
   ws.on_open(

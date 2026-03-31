@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -28,7 +29,7 @@
 #include <vector>
 
 #include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/executor/IExecutor.hpp>
 #include <vix/json/Simple.hpp>
 #include <vix/utils/Logger.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
@@ -46,8 +47,8 @@ namespace vix::websocket
    * broadcast (global or per-room), and optionally forwards typed JSON messages
    * to a LongPollingBridge.
    *
-   * This runtime-based Vix version is independent of Boost and no longer relies
-   * on the legacy generic threadpool executor abstraction.
+   * This Vix version is independent of Boost and uses the generic executor
+   * abstraction so it can run on different executor implementations. :contentReference[oaicite:0]{index=0}
    */
   class Server
   {
@@ -70,11 +71,11 @@ namespace vix::websocket
      * @brief Construct a WebSocket server.
      *
      * @param cfg Config provider used for port and engine settings.
-     * @param executor Shared runtime executor used by the WebSocket engine.
+     * @param executor Shared executor used by the WebSocket engine.
      */
     explicit Server(
         vix::config::Config &cfg,
-        std::shared_ptr<vix::executor::RuntimeExecutor> executor)
+        std::shared_ptr<vix::executor::IExecutor> executor)
         : cfg_(cfg),
           executor_(std::move(executor)),
           router_(std::make_shared<Router>()),
@@ -92,7 +93,7 @@ namespace vix::websocket
       if (!executor_)
       {
         throw std::invalid_argument(
-            "vix::websocket::Server requires a valid runtime executor");
+            "vix::websocket::Server requires a valid executor");
       }
 
       router_->on_open(
@@ -155,17 +156,17 @@ namespace vix::websocket
     }
 
     /**
-     * @brief Construct a WebSocket server from an owning runtime executor.
+     * @brief Construct a WebSocket server from an owning executor.
      *
      * @param cfg Config provider used for port and engine settings.
-     * @param executor Unique runtime executor transferred to this server.
+     * @param executor Unique executor transferred to this server.
      */
     explicit Server(
         vix::config::Config &cfg,
-        std::unique_ptr<vix::executor::RuntimeExecutor> executor)
+        std::unique_ptr<vix::executor::IExecutor> executor)
         : Server(
               cfg,
-              std::shared_ptr<vix::executor::RuntimeExecutor>(std::move(executor)))
+              std::shared_ptr<vix::executor::IExecutor>(std::move(executor)))
     {
     }
 
@@ -615,8 +616,8 @@ namespace vix::websocket
     /** @brief WebSocket configuration source. */
     vix::config::Config &cfg_;
 
-    /** @brief Shared runtime executor used by the WebSocket layer. */
-    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
+    /** @brief Shared executor used by the WebSocket layer. */
+    std::shared_ptr<vix::executor::IExecutor> executor_;
 
     /** @brief High-level event router. */
     std::shared_ptr<Router> router_;

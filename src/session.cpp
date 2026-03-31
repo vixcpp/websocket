@@ -183,13 +183,19 @@ namespace vix::websocket
       std::unique_ptr<tcp_stream> stream,
       const Config &cfg,
       std::shared_ptr<Router> router,
-      std::shared_ptr<vix::executor::RuntimeExecutor> executor)
+      std::shared_ptr<vix::executor::IExecutor> executor)
       : stream_(std::move(stream)),
         cfg_(cfg),
         router_(std::move(router)),
         executor_(std::move(executor)),
         ioc_(std::make_shared<io_context>())
   {
+    if (!executor_)
+    {
+      throw std::invalid_argument(
+          "vix::websocket::Session requires a valid executor");
+    }
+
     auto ctx = ioc_;
     std::thread(
         [ctx]()

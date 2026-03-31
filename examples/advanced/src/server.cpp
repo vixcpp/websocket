@@ -11,10 +11,10 @@
  *  Vix.cpp
  *
  * This example demonstrates a fully featured, production-style WebSocket
- * server using the Vix.cpp runtime. It showcases how to combine:
+ * server using the Vix.cpp executor abstraction. It showcases how to combine:
  *
  *  • Asynchronous native WebSocket server
- *  • RuntimeExecutor integration
+ *  • Thread pool executor integration
  *  • Room-based messaging (join, leave, broadcast)
  *  • Typed JSON protocol ("type" + "payload")
  *  • Persistent message storage using SQLite (WAL enabled)
@@ -37,7 +37,7 @@
 
 #include <vix.hpp>
 
-#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/experimental/ThreadPoolExecutor.hpp>
 #include <vix/websocket.hpp>
 #include <vix/websocket/LongPolling.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
@@ -57,9 +57,13 @@ int main()
 
   using njson = nlohmann::json;
 
-  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+  auto exec = vix::experimental::make_threadpool_executor(
+      4, // min threads
+      8, // max threads
+      0  // default priority
+  );
 
-  App wsApp{"config/config.json", exec};
+  App wsApp{"config/config.json", std::move(exec)};
   auto &ws = wsApp.server();
 
   WebSocketMetrics metrics;
