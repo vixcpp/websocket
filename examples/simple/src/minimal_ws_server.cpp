@@ -11,11 +11,10 @@
  *  Vix.cpp
  */
 #include <iostream>
-#include <memory>
 #include <string>
 
 #include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/experimental/ThreadPoolExecutor.hpp>
 #include <vix/websocket.hpp>
 #include <vix/websocket/protocol.hpp>
 
@@ -23,9 +22,13 @@ namespace ws = vix::websocket;
 
 int main()
 {
-  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+  auto exec = vix::experimental::make_threadpool_executor(
+      4, // min threads
+      8, // max threads
+      0  // default priority
+  );
 
-  ws::App app{"config/config.json", exec};
+  ws::App app{"config/config.json", std::move(exec)};
   auto &server = app.server();
 
   std::cout << "[minimal] WebSocket server starting on port "

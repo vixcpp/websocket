@@ -44,7 +44,7 @@
 //
 
 #include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/experimental/ThreadPoolExecutor.hpp>
 #include <vix/websocket.hpp>
 
 int main()
@@ -54,11 +54,15 @@ int main()
   // 1) Load config
   vix::config::Config cfg{"config/config.json"};
 
-  // 2) Runtime executor for async WebSocket processing
-  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+  // 2) Thread pool executor for async WebSocket processing
+  auto exec = vix::experimental::make_threadpool_executor(
+      4, // min threads
+      8, // max threads
+      0  // default priority
+  );
 
   // 3) Construct the WebSocket server
-  Server ws(cfg, exec);
+  Server ws(cfg, std::move(exec));
 
   // 4) On new connection
   ws.on_open(
