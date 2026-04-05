@@ -157,9 +157,11 @@ if (WEBSOCKET_SOURCES)
 
   target_compile_features(vix_websocket PUBLIC cxx_std_20)
 
+  find_package(SQLite3 QUIET)
+
   # SQLite (required for websocket storage)
   # vcpkg exposes: unofficial-sqlite3::sqlite3
-  # other platforms may use FindSQLite3 (SQLite::SQLite3)
+  # other platforms may use FindSQLite3 (preferred: SQLite3::SQLite3)
   set(_vix_sqlite_target "")
 
   find_package(unofficial-sqlite3 CONFIG QUIET)
@@ -170,19 +172,18 @@ if (WEBSOCKET_SOURCES)
     find_package(SQLite3 QUIET)
 
     if (SQLite3_FOUND)
-      if (TARGET SQLite::SQLite3)
-        set(_vix_sqlite_target SQLite::SQLite3)
-      elseif (TARGET SQLite3::SQLite3)
-        if (NOT TARGET SQLite::SQLite3)
-          add_library(SQLite::SQLite3 ALIAS SQLite3::SQLite3)
-        endif()
-        set(_vix_sqlite_target SQLite::SQLite3)
-      elseif (TARGET sqlite3)
-        if (NOT TARGET SQLite::SQLite3)
-          add_library(SQLite::SQLite3 ALIAS sqlite3)
-        endif()
-        set(_vix_sqlite_target SQLite::SQLite3)
-      endif()
+      if (TARGET SQLite3::SQLite3)
+    set(_vix_sqlite_target SQLite3::SQLite3)
+
+    elseif (TARGET SQLite::SQLite3)
+      # upgrade deprecated target → modern alias
+      add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+      set(_vix_sqlite_target SQLite3::SQLite3)
+
+    elseif (TARGET sqlite3)
+      add_library(SQLite3::SQLite3 ALIAS sqlite3)
+      set(_vix_sqlite_target SQLite3::SQLite3)
+    endif()
 
       message(STATUS "[websocket] SQLite3 found (FindSQLite3): ${_vix_sqlite_target}")
     endif()
