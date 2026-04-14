@@ -24,12 +24,13 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 #include <vix/async/core/cancel.hpp>
 #include <vix/async/core/io_context.hpp>
 #include <vix/async/core/task.hpp>
 #include <vix/async/net/tcp.hpp>
-#include <vix/executor/IExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/utils/Logger.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/protocol.hpp>
@@ -53,8 +54,8 @@ namespace vix::websocket
    * - dispatch to the WebSocket router
    *
    * This implementation is native to Vix and independent of Boost.
-   * It uses the generic executor abstraction so it can work with multiple
-   * executor implementations. :contentReference[oaicite:0]{index=0}
+   * It is runtime-based and uses RuntimeExecutor instead of the old
+   * generic threadpool-oriented IExecutor abstraction.
    */
   class Session : public std::enable_shared_from_this<Session>
   {
@@ -65,13 +66,14 @@ namespace vix::websocket
      * @param stream Accepted native TCP stream.
      * @param cfg WebSocket runtime configuration.
      * @param router Event router for open, close, message, and error callbacks.
-     * @param executor Executor used for async scheduling and continuations.
+     * @param executor Runtime executor used for async scheduling and continuations.
      */
     Session(
         std::unique_ptr<tcp_stream> stream,
         const Config &cfg,
         std::shared_ptr<Router> router,
-        std::shared_ptr<vix::executor::IExecutor> executor);
+        std::shared_ptr<vix::executor::RuntimeExecutor> executor,
+        std::shared_ptr<io_context> ioc);
 
     ~Session() = default;
 
@@ -238,8 +240,8 @@ namespace vix::websocket
     /** @brief Shared router used for lifecycle and message callbacks. */
     std::shared_ptr<Router> router_;
 
-    /** @brief Executor used by this session. */
-    std::shared_ptr<vix::executor::IExecutor> executor_;
+    /** @brief Runtime executor used by this session. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
 
     /** @brief Shared async IO context associated with the session runtime. */
     std::shared_ptr<io_context> ioc_{};
@@ -247,11 +249,9 @@ namespace vix::websocket
     /** @brief Internal read buffer used for HTTP and frame parsing. */
     std::string readBuffer_{};
 
-    /** @brief True once close has been initiated. */
-    bool closing_{false};
-
-    /** @brief True while the WebSocket session is considered open. */
-    bool open_{false};
+    std::atomic<bool> closing_{false};
+    std::atomic<bool> open_{false};
+    std::atomic<bool> closeNotified_{false};
 
     /** @brief Cancellation source for idle timeout handling. */
     cancel_source idleCancel_{};

@@ -38,6 +38,18 @@ namespace vix::websocket
 
   namespace
   {
+
+    void notify_close_once(vix::websocket::Session &self,
+                           const std::shared_ptr<vix::websocket::Router> &router,
+                           std::atomic<bool> &closeNotified)
+    {
+      bool expected = false;
+      if (router && closeNotified.compare_exchange_strong(expected, true))
+      {
+        router->handle_close(self);
+      }
+    }
+
     inline Logger &log()
     {
       return Logger::getInstance();
@@ -183,32 +195,18 @@ namespace vix::websocket
       std::unique_ptr<tcp_stream> stream,
       const Config &cfg,
       std::shared_ptr<Router> router,
-      std::shared_ptr<vix::executor::IExecutor> executor)
+      std::shared_ptr<vix::executor::RuntimeExecutor> executor,
+      std::shared_ptr<io_context> ioc)
       : stream_(std::move(stream)),
         cfg_(cfg),
         router_(std::move(router)),
         executor_(std::move(executor)),
-        ioc_(std::make_shared<io_context>())
+        ioc_(std::move(ioc))
   {
-    if (!executor_)
+    if (!ioc_)
     {
-      throw std::invalid_argument(
-          "vix::websocket::Session requires a valid executor");
+      throw std::invalid_argument("websocket session requires a valid io_context");
     }
-
-    auto ctx = ioc_;
-    std::thread(
-        [ctx]()
-        {
-          try
-          {
-            ctx->run();
-          }
-          catch (...)
-          {
-          }
-        })
-        .detach();
   }
 
   task<void> Session::run()
@@ -260,12 +258,12 @@ namespace vix::websocket
 
   void Session::close(std::string)
   {
-    if (closing_)
+    bool expected = false;
+    if (!closing_.compare_exchange_strong(expected, true))
     {
       return;
     }
 
-    closing_ = true;
     cancel_idle_timer();
     stop_heartbeat();
 
@@ -285,6 +283,7 @@ namespace vix::websocket
             {
             }
 
+            notify_close_once(*self, self->router_, self->closeNotified_);
             co_await self->close_stream_only();
             co_return;
           }());
@@ -399,7 +398,7 @@ namespace vix::websocket
 
         if (router_)
         {
-          router_->handle_close(*this);
+          notify_close_once(*this, router_, closeNotified_);
         }
 
         co_await close_stream_only();
@@ -417,7 +416,7 @@ namespace vix::websocket
 
     if (router_)
     {
-      router_->handle_close(*this);
+      notify_close_once(*this, router_, closeNotified_);
     }
 
     co_await close_stream_only();
@@ -445,54 +444,7 @@ namespace vix::websocket
 
   void Session::arm_idle_timer()
   {
-    if (cfg_.idleTimeout.count() <= 0)
-    {
-      return;
-    }
-
-    idleCancel_ = cancel_source{};
-    const auto ct = idleCancel_.token();
-    const auto timeout = cfg_.idleTimeout;
-    auto weak_self = weak_from_this();
-
-    std::thread(
-        [weak_self, timeout, ct]()
-        {
-          constexpr auto step = std::chrono::milliseconds(100);
-          auto waited = std::chrono::milliseconds(0);
-
-          while (waited < timeout)
-          {
-            if (ct.is_cancelled())
-            {
-              return;
-            }
-
-            const auto remain = timeout - waited;
-            const auto sleep_for = (remain < step) ? remain : step;
-            std::this_thread::sleep_for(sleep_for);
-            waited += std::chrono::duration_cast<std::chrono::milliseconds>(sleep_for);
-          }
-
-          if (ct.is_cancelled())
-          {
-            return;
-          }
-
-          auto self = weak_self.lock();
-          if (!self || !self->ioc_)
-          {
-            return;
-          }
-
-          spawn_detached(
-              *self->ioc_,
-              [self]() -> task<void>
-              {
-                co_await self->on_idle_timeout();
-              }());
-        })
-        .detach();
+    return;
   }
 
   void Session::cancel_idle_timer()
@@ -523,7 +475,7 @@ namespace vix::websocket
 
     if (router_)
     {
-      router_->handle_close(*this);
+      notify_close_once(*this, router_, closeNotified_);
     }
 
     co_await close_stream_only();
@@ -822,83 +774,7 @@ namespace vix::websocket
 
   void Session::maybe_start_heartbeat()
   {
-    stop_heartbeat();
-
-    if (cfg_.idleTimeout.count() <= 0)
-    {
-      return;
-    }
-
-    heartbeatStop_ = false;
-    auto weak_self = weak_from_this();
-    const auto interval = cfg_.idleTimeout / 2;
-
-    if (interval.count() <= 0)
-    {
-      return;
-    }
-
-    heartbeatThread_ = std::thread(
-        [weak_self, interval]()
-        {
-          constexpr auto step = std::chrono::milliseconds(100);
-          auto waited = std::chrono::milliseconds(0);
-
-          while (true)
-          {
-            auto self = weak_self.lock();
-            if (!self)
-            {
-              return;
-            }
-
-            while (waited < interval)
-            {
-              if (self->heartbeatStop_ || self->closing_ || !self->open_)
-              {
-                return;
-              }
-
-              const auto remain = interval - waited;
-              const auto sleep_for = (remain < step) ? remain : step;
-              std::this_thread::sleep_for(sleep_for);
-              waited += std::chrono::duration_cast<std::chrono::milliseconds>(sleep_for);
-            }
-
-            waited = std::chrono::milliseconds(0);
-
-            if (self->heartbeatStop_ || self->closing_ || !self->open_)
-            {
-              return;
-            }
-
-            if (!self->ioc_)
-            {
-              return;
-            }
-
-            auto keep = self;
-            spawn_detached(
-                *self->ioc_,
-                [keep]() -> task<void>
-                {
-                  try
-                  {
-                    if (keep->cfg_.autoPingPong)
-                    {
-                      co_await keep->write_raw_frame(
-                          detail::build_ping_frame(false));
-                    }
-                  }
-                  catch (const std::exception &e)
-                  {
-                    keep->emit_error(e.what());
-                  }
-
-                  co_return;
-                }());
-          }
-        });
+    return;
   }
 
   void Session::stop_heartbeat()
@@ -907,6 +783,12 @@ namespace vix::websocket
 
     if (heartbeatThread_.joinable())
     {
+      if (heartbeatThread_.get_id() == std::this_thread::get_id())
+      {
+        heartbeatThread_.detach();
+        return;
+      }
+
       heartbeatThread_.join();
     }
   }
