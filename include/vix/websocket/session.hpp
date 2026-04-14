@@ -24,6 +24,7 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 #include <vix/async/core/cancel.hpp>
 #include <vix/async/core/io_context.hpp>
@@ -71,7 +72,8 @@ namespace vix::websocket
         std::unique_ptr<tcp_stream> stream,
         const Config &cfg,
         std::shared_ptr<Router> router,
-        std::shared_ptr<vix::executor::RuntimeExecutor> executor);
+        std::shared_ptr<vix::executor::RuntimeExecutor> executor,
+        std::shared_ptr<io_context> ioc);
 
     ~Session() = default;
 
@@ -247,11 +249,9 @@ namespace vix::websocket
     /** @brief Internal read buffer used for HTTP and frame parsing. */
     std::string readBuffer_{};
 
-    /** @brief True once close has been initiated. */
-    bool closing_{false};
-
-    /** @brief True while the WebSocket session is considered open. */
-    bool open_{false};
+    std::atomic<bool> closing_{false};
+    std::atomic<bool> open_{false};
+    std::atomic<bool> closeNotified_{false};
 
     /** @brief Cancellation source for idle timeout handling. */
     cancel_source idleCancel_{};

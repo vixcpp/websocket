@@ -319,7 +319,8 @@ namespace vix::websocket
           std::move(stream),
           wsConfig_,
           router_,
-          executor_);
+          executor_,
+          ioContext_);
 
       co_await session->run();
     }
