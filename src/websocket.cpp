@@ -331,7 +331,10 @@ namespace vix::websocket
           "[ws] failed to create or run session ({})",
           e.what());
 
-      close_stream(std::move(stream));
+      if (stream)
+      {
+        close_stream(std::move(stream));
+      }
     }
 
     co_return;
