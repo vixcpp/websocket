@@ -11,8 +11,9 @@
  *  Vix.cpp
  */
 #include <iostream>
+#include <memory>
 
-#include <vix/experimental/ThreadPoolExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/websocket.hpp>
 
 using vix::websocket::App;
@@ -39,13 +40,9 @@ void handle_chat(
 
 int main()
 {
-  auto exec = vix::experimental::make_threadpool_executor(
-      4, // min threads
-      8, // max threads
-      0  // default priority
-  );
+  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
 
-  App app{"config/config.json", std::move(exec)};
+  App app{"config/config.json", exec};
 
   (void)app.ws("/chat", handle_chat);
 

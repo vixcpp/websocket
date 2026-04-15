@@ -24,8 +24,10 @@
  *   }
  */
 
+#include <memory>
+
 #include <vix/config/Config.hpp>
-#include <vix/experimental/ThreadPoolExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/websocket.hpp>
 
 int main()
@@ -33,17 +35,17 @@ int main()
   using vix::websocket::Server;
 
   // 1) Load configuration
+  //
+  // The Config loader will try to find "config/config.json"
+  // relative to the project root or the current working directory.
+  //
   vix::config::Config cfg{"config/config.json"};
 
-  // 2) Create a thread pool executor
-  auto exec = vix::experimental::make_threadpool_executor(
-      4, // min threads
-      8, // max threads
-      0  // default priority
-  );
+  // 2) Create a runtime executor for the WebSocket server
+  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
 
   // 3) Construct the WebSocket server
-  Server ws(cfg, std::move(exec));
+  Server ws(cfg, exec);
 
   // 4) On new connection
   ws.on_open(
@@ -71,10 +73,12 @@ int main()
 
         if (type == "chat.message")
         {
+          // echo / broadcast chat messages
           ws.broadcast_json("chat.message", payload);
         }
         else
         {
+          // optional: broadcast unknown message types for debugging
           ws.broadcast_json(
               "chat.unknown",
               {
