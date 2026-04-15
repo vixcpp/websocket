@@ -55,7 +55,7 @@ namespace vix::websocket
    *
    * This implementation is native to Vix and independent of Boost.
    * It is runtime-based and uses RuntimeExecutor instead of the old
-   * generic threadpool-oriented IExecutor abstraction.
+   * generic threadpool-oriented RuntimeExecutor abstraction.
    */
   class Session : public std::enable_shared_from_this<Session>
   {

@@ -21,7 +21,7 @@
 #include <vector>
 
 #include <vix/config/Config.hpp>
-#include <vix/executor/IExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/json/Simple.hpp>
 #include <vix/websocket/protocol.hpp>
 #include <vix/websocket/server.hpp>
@@ -37,8 +37,8 @@ namespace vix::websocket
    * Manages configuration, executor, routes, and the underlying
    * WebSocket server.
    *
-   * This version uses the generic Vix executor abstraction and no longer
-   * depends on a concrete RuntimeExecutor type.
+   * This version uses RuntimeExecutor consistently across the
+   * WebSocket stack.
    */
   class App
   {
@@ -55,11 +55,11 @@ namespace vix::websocket
      * @brief Construct a WebSocket app.
      *
      * @param configPath Path to the configuration file.
-     * @param executor Shared executor used by the WebSocket stack.
+     * @param executor Shared runtime executor used by the WebSocket stack.
      */
     App(
         const std::string &configPath,
-        std::shared_ptr<vix::executor::IExecutor> executor);
+        std::shared_ptr<vix::executor::RuntimeExecutor> executor);
 
     ~App() noexcept;
 
@@ -112,9 +112,9 @@ namespace vix::websocket
     /**
      * @brief Access the executor used by the app.
      *
-     * @return Shared executor.
+     * @return Shared runtime executor.
      */
-    [[nodiscard]] std::shared_ptr<vix::executor::IExecutor> executor() noexcept
+    [[nodiscard]] std::shared_ptr<vix::executor::RuntimeExecutor> executor() noexcept
     {
       return executor_;
     }
@@ -146,8 +146,8 @@ namespace vix::websocket
     /** @brief Application configuration source. */
     vix::config::Config config_;
 
-    /** @brief Shared executor used by this app. */
-    std::shared_ptr<vix::executor::IExecutor> executor_;
+    /** @brief Shared runtime executor used by this app. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
 
     /** @brief Underlying high-level WebSocket server. */
     Server server_;

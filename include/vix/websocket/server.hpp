@@ -29,7 +29,7 @@
 #include <vector>
 
 #include <vix/config/Config.hpp>
-#include <vix/executor/IExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/json/Simple.hpp>
 #include <vix/utils/Logger.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
@@ -71,11 +71,11 @@ namespace vix::websocket
      * @brief Construct a WebSocket server.
      *
      * @param cfg Config provider used for port and engine settings.
-     * @param executor Shared executor used by the WebSocket engine.
+     * @param executor Shared runtime executor used by the WebSocket engine.
      */
     explicit Server(
         vix::config::Config &cfg,
-        std::shared_ptr<vix::executor::IExecutor> executor)
+        std::shared_ptr<vix::executor::RuntimeExecutor> executor)
         : cfg_(cfg),
           executor_(std::move(executor)),
           router_(std::make_shared<Router>()),
@@ -93,7 +93,7 @@ namespace vix::websocket
       if (!executor_)
       {
         throw std::invalid_argument(
-            "vix::websocket::Server requires a valid executor");
+            "vix::websocket::Server requires a valid runtime executor");
       }
 
       router_->on_open(
@@ -159,14 +159,14 @@ namespace vix::websocket
      * @brief Construct a WebSocket server from an owning executor.
      *
      * @param cfg Config provider used for port and engine settings.
-     * @param executor Unique executor transferred to this server.
+     * @param executor Unique runtime executor transferred to this server.
      */
     explicit Server(
         vix::config::Config &cfg,
-        std::unique_ptr<vix::executor::IExecutor> executor)
+        std::unique_ptr<vix::executor::RuntimeExecutor> executor)
         : Server(
               cfg,
-              std::shared_ptr<vix::executor::IExecutor>(std::move(executor)))
+              std::shared_ptr<vix::executor::RuntimeExecutor>(std::move(executor)))
     {
     }
 
@@ -616,8 +616,8 @@ namespace vix::websocket
     /** @brief WebSocket configuration source. */
     vix::config::Config &cfg_;
 
-    /** @brief Shared executor used by the WebSocket layer. */
-    std::shared_ptr<vix::executor::IExecutor> executor_;
+    /** @brief Shared runtime executor used by the WebSocket layer. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
 
     /** @brief High-level event router. */
     std::shared_ptr<Router> router_;

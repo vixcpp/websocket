@@ -18,12 +18,13 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <utility>
 
 #include <vix/app/App.hpp>
 #include <vix/config/Config.hpp>
 #include <vix/console.hpp>
-#include <vix/executor/IExecutor.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/openapi/register_docs.hpp>
 #include <vix/utils/ServerPrettyLogs.hpp>
 #include <vix/websocket/openapi_docs.hpp>
@@ -52,12 +53,12 @@ namespace vix::websocket
      *
      * @param app HTTP application instance.
      * @param ws WebSocket server instance.
-     * @param exec Shared executor.
+     * @param exec Shared runtime executor.
      */
     AttachedRuntime(
         vix::App &app,
         vix::websocket::Server &ws,
-        std::shared_ptr<vix::executor::IExecutor> exec)
+        std::shared_ptr<vix::executor::RuntimeExecutor> exec)
         : app_(app),
           ws_(ws),
           exec_(std::move(exec)),
@@ -150,9 +151,6 @@ namespace vix::websocket
      *
      * Finalization order:
      * 1. stop websocket blocking
-     *
-     * The shared executor is not stopped here because IExecutor does not expose
-     * lifecycle control methods such as stop().
      */
     void finalize_shutdown() noexcept
     {
@@ -203,8 +201,8 @@ namespace vix::websocket
     /** @brief Attached WebSocket server. */
     vix::websocket::Server &ws_;
 
-    /** @brief Shared executor. */
-    std::shared_ptr<vix::executor::IExecutor> exec_;
+    /** @brief Shared runtime executor. */
+    std::shared_ptr<vix::executor::RuntimeExecutor> exec_;
 
     /** @brief Shared shutdown state used by callbacks and finalization. */
     std::shared_ptr<State> state_;
@@ -242,13 +240,13 @@ namespace vix
    *
    * @param app HTTP application instance.
    * @param ws WebSocket server instance.
-   * @param exec Shared executor.
+   * @param exec Shared runtime executor.
    * @param port HTTP listening port.
    */
   inline void run_http_and_ws(
       vix::App &app,
       vix::websocket::Server &ws,
-      std::shared_ptr<vix::executor::IExecutor> exec,
+      std::shared_ptr<vix::executor::RuntimeExecutor> exec,
       int port = 8080)
   {
     register_ws_openapi_docs_once();
@@ -290,7 +288,7 @@ namespace vix
   /**
    * @brief Build and serve a combined HTTP + WebSocket runtime from a config path.
    *
-   * Creates a shared executor, constructs the HTTP app and WebSocket
+   * Creates a shared runtime executor, constructs the HTTP app and WebSocket
    * server, lets the caller configure routes and handlers, then runs both
    * servers together.
    *
@@ -309,10 +307,10 @@ namespace vix
 
     auto &cfg = vix::config::Config::getInstance(configPath);
 
-    auto exec = std::make_shared<vix::experimental::ThreadPoolExecutor>(
-        std::thread::hardware_concurrency() == 0 ? 4u : static_cast<std::size_t>(std::thread::hardware_concurrency()),
-        std::thread::hardware_concurrency() == 0 ? 4u : static_cast<std::size_t>(std::thread::hardware_concurrency()),
-        0);
+    auto exec = std::make_shared<vix::executor::RuntimeExecutor>(
+        std::thread::hardware_concurrency() == 0
+            ? 4u
+            : static_cast<std::uint32_t>(std::thread::hardware_concurrency()));
 
     vix::App app{exec};
     vix::websocket::Server ws{cfg, exec};
