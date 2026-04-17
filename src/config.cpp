@@ -14,6 +14,7 @@
 #include <vix/websocket/config.hpp>
 
 #include <algorithm>
+#include <cstdint>
 
 namespace vix::websocket
 {
@@ -21,47 +22,49 @@ namespace vix::websocket
   {
     Config cfg;
 
-    if (core.has("websocket.max_message_size"))
     {
-      auto v = core.getInt("websocket.max_message_size", static_cast<int>(cfg.maxMessageSize));
-      cfg.maxMessageSize = static_cast<std::size_t>(std::max(1024, v)); // min 1 KiB
+      const int value = core.getInt(
+          "websocket.max_message_size",
+          static_cast<int>(cfg.maxMessageSize));
+
+      cfg.maxMessageSize = static_cast<std::size_t>(std::max(1024, value));
     }
 
-    if (core.has("websocket.idle_timeout"))
     {
-      auto v = core.getInt("websocket.idle_timeout",
-                           static_cast<int>(cfg.idleTimeout.count()));
+      const int value = core.getInt(
+          "websocket.idle_timeout",
+          static_cast<int>(cfg.idleTimeout.count()));
 
-      if (v <= 0)
+      if (value <= 0)
       {
         cfg.idleTimeout = std::chrono::seconds::zero();
       }
       else
       {
-        cfg.idleTimeout = std::chrono::seconds{v};
+        cfg.idleTimeout = std::chrono::seconds{value};
       }
     }
 
-    if (core.has("websocket.enable_deflate"))
-    {
-      cfg.enablePerMessageDeflate =
-          core.getBool("websocket.enable_deflate", cfg.enablePerMessageDeflate);
-    }
+    cfg.enablePerMessageDeflate =
+        core.getBool("websocket.enable_deflate", cfg.enablePerMessageDeflate);
 
-    if (core.has("websocket.ping_interval"))
     {
-      auto v = core.getInt("websocket.ping_interval",
-                           static_cast<int>(cfg.pingInterval.count()));
-      if (v <= 0)
-        cfg.pingInterval = std::chrono::seconds{0};
+      const int value = core.getInt(
+          "websocket.ping_interval",
+          static_cast<int>(cfg.pingInterval.count()));
+
+      if (value <= 0)
+      {
+        cfg.pingInterval = std::chrono::seconds::zero();
+      }
       else
-        cfg.pingInterval = std::chrono::seconds(v);
+      {
+        cfg.pingInterval = std::chrono::seconds{value};
+      }
     }
 
-    if (core.has("websocket.auto_ping_pong"))
-    {
-      cfg.autoPingPong = core.getBool("websocket.auto_ping_pong", cfg.autoPingPong);
-    }
+    cfg.autoPingPong =
+        core.getBool("websocket.auto_ping_pong", cfg.autoPingPong);
 
     return cfg;
   }
