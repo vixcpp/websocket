@@ -175,7 +175,7 @@ namespace vix::websocket
 
     std::string make_response_text(int status, std::string_view content_type, std::string body)
     {
-      vix::vhttp::Response res;
+      vix::http::Response res;
       res.set_status(status);
       res.set_header("Server", "vix-ws-metrics");
       res.set_header("Cache-Control", "no-store");
@@ -198,14 +198,14 @@ namespace vix::websocket
         if (parsed && is_metrics_request(*parsed))
         {
           wire = make_response_text(
-              vix::vhttp::OK,
+              vix::http::OK,
               "text/plain; version=0.0.4; charset=utf-8",
               metrics.render_prometheus());
         }
         else
         {
           wire = make_response_text(
-              vix::vhttp::NOT_FOUND,
+              vix::http::NOT_FOUND,
               "text/plain; charset=utf-8",
               "Not Found\n");
         }

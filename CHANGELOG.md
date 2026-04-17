@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ## [1.11.0] - 2026-03-24
 
-- Refactored WebSocket module to use native vix::vhttp layer
+- Refactored WebSocket module to use native vix::http layer
 - Removed implicit dependencies on Boost-based HTTP internals
 - Updated server, client and session implementations to new core API
 - Simplified protocol handling and routing integration

@@ -112,7 +112,7 @@ namespace vix::websocket::http
      *
      * Works for:
      *  - boost::beast::http::request: req.target() -> string_view
-     *  - vix::vhttp::Request: req.target() -> std::string
+     *  - vix::http::Request: req.target() -> std::string
      */
     template <typename Request>
     inline std::string request_target_string(const Request &req)
@@ -121,7 +121,7 @@ namespace vix::websocket::http
     }
 
     /**
-     * @brief Get query parameter (supports vix::vhttp::Request or Beast-like target parsing).
+     * @brief Get query parameter (supports vix::http::Request or Beast-like target parsing).
      */
     template <typename Request>
     inline std::optional<std::string> get_query_param(const Request &req, std::string_view key)
@@ -153,7 +153,7 @@ namespace vix::websocket::http
     }
 
     /**
-     * @brief Parse JSON body (supports vix::vhttp::Request::json() when available).
+     * @brief Parse JSON body (supports vix::http::Request::json() when available).
      *
      * Returns an optional JSON; may be empty if body is empty or parsing fails.
      */
