@@ -209,12 +209,22 @@ if (WEBSOCKET_SOURCES)
       ${_vix_sqlite_target}
   )
 
-  if (TARGET vix_warnings)
-    target_link_libraries(vix_websocket PRIVATE vix_warnings)
+  if (NOT MSVC)
+    target_compile_options(vix_websocket PRIVATE
+      -Wall
+      -Wextra
+      -Wpedantic
+    )
   endif()
 
-  if (TARGET vix_sanitizers)
-    target_link_libraries(vix_websocket PRIVATE vix_sanitizers)
+  if (VIX_ENABLE_SANITIZERS AND NOT MSVC)
+    target_compile_options(vix_websocket PRIVATE
+      -fno-omit-frame-pointer
+      -fsanitize=address,undefined
+    )
+    target_link_options(vix_websocket PRIVATE
+      -fsanitize=address,undefined
+    )
   endif()
 
   vix_websocket_try_link_json(vix_websocket PUBLIC)
