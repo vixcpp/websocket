@@ -305,7 +305,7 @@ namespace vix
   {
     register_ws_openapi_docs_once();
 
-    auto &cfg = vix::config::Config::getInstance(configPath);
+    vix::config::Config cfg{configPath};
 
     auto exec = std::make_shared<vix::executor::RuntimeExecutor>(
         std::thread::hardware_concurrency() == 0
