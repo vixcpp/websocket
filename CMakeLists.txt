@@ -210,11 +210,11 @@ if (WEBSOCKET_SOURCES)
   )
 
   if (TARGET vix_warnings)
-    target_link_libraries(vix_websocket PUBLIC vix_warnings)
+    target_link_libraries(vix_websocket PRIVATE vix_warnings)
   endif()
 
   if (TARGET vix_sanitizers)
-    target_link_libraries(vix_websocket PUBLIC vix_sanitizers)
+    target_link_libraries(vix_websocket PRIVATE vix_sanitizers)
   endif()
 
   vix_websocket_try_link_json(vix_websocket PUBLIC)
@@ -256,14 +256,6 @@ else()
   endif()
 
   target_compile_features(vix_websocket INTERFACE cxx_std_20)
-
-  if (TARGET vix_warnings)
-    target_link_libraries(vix_websocket INTERFACE vix_warnings)
-  endif()
-
-  if (TARGET vix_sanitizers)
-    target_link_libraries(vix_websocket INTERFACE vix_sanitizers)
-  endif()
 
   target_include_directories(vix_websocket INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
