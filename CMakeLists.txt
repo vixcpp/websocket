@@ -218,11 +218,11 @@ if (WEBSOCKET_SOURCES)
   endif()
 
   if (VIX_ENABLE_SANITIZERS AND NOT MSVC)
-    target_compile_options(vix_websocket PRIVATE
+    target_compile_options(vix_websocket PUBLIC
       -fno-omit-frame-pointer
       -fsanitize=address,undefined
     )
-    target_link_options(vix_websocket PRIVATE
+    target_link_options(vix_websocket INTERFACE
       -fsanitize=address,undefined
     )
   endif()
