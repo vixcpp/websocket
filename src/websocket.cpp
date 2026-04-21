@@ -56,11 +56,6 @@ namespace vix::websocket
             log.setFormatFromEnv("VIX_LOG_FORMAT");
           });
     }
-
-    void set_affinity(std::size_t thread_index)
-    {
-      (void)thread_index;
-    }
   } // namespace
 
   LowLevelServer::LowLevelServer(
