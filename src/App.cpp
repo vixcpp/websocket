@@ -84,55 +84,26 @@ namespace vix::websocket
 
     if (stopped_.exchange(true, std::memory_order_acq_rel))
     {
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Error,
-          "[trace] websocket::App::stop already stopped");
       return;
     }
 
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] websocket::App::stop enter");
-
     try
     {
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Error,
-          "[trace] websocket::App::stop before server_.stop");
       server_.stop();
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Error,
-          "[trace] websocket::App::stop after server_.stop");
     }
     catch (...)
     {
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Error,
-          "[trace] websocket::App::stop server_.stop threw");
     }
 
     try
     {
       if (executor_)
       {
-        vix::utils::Logger::getInstance().log(
-            vix::utils::Logger::Level::Error,
-            "[trace] websocket::App::stop before executor_->stop");
         executor_->stop();
-        vix::utils::Logger::getInstance().log(
-            vix::utils::Logger::Level::Error,
-            "[trace] websocket::App::stop after executor_->stop");
       }
     }
     catch (...)
     {
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Error,
-          "[trace] websocket::App::stop executor_->stop threw");
     }
-
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] websocket::App::stop leave");
   }
 } // namespace vix::websocket

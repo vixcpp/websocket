@@ -273,17 +273,7 @@ namespace vix::websocket
 
             try
             {
-              logger().log(
-                  Logger::Level::Error,
-                  "[trace] LowLevelServer::io thread {} enter",
-                  static_cast<unsigned long long>(i));
-
               ioContext_->run();
-
-              logger().log(
-                  Logger::Level::Error,
-                  "[trace] LowLevelServer::io thread {} leave",
-                  static_cast<unsigned long long>(i));
             }
             catch (const std::exception &e)
             {
@@ -355,61 +345,45 @@ namespace vix::websocket
 
   void LowLevelServer::stop_async()
   {
-    logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async enter");
-
     const bool already =
         stopRequested_.exchange(true, std::memory_order_acq_rel);
 
     if (already)
     {
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async already stopping");
       return;
     }
 
     try
     {
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before listener close");
       if (listener_)
       {
         listener_->close();
       }
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after listener close");
     }
     catch (...)
     {
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async listener close threw");
     }
 
     if (ioContext_)
     {
       try
       {
-        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before ioContext net stop");
         ioContext_->net().stop();
-        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after ioContext net stop");
       }
       catch (...)
       {
-        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async ioContext net stop threw");
       }
 
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before ioContext stop");
       ioContext_->stop();
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after ioContext stop");
     }
-
-    logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async leave");
   }
 
   void LowLevelServer::join_threads()
   {
-    logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads enter");
-
     std::lock_guard<std::mutex> lock(joinMutex_);
 
     if (threadsJoined_.load(std::memory_order_acquire))
     {
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads already joined");
       return;
     }
 
@@ -420,16 +394,10 @@ namespace vix::websocket
     {
       try
       {
-        logger().log(Logger::Level::Error,
-                     "[trace] LowLevelServer::join_threads before ioContext net join");
         ioContext_->net().join();
-        logger().log(Logger::Level::Error,
-                     "[trace] LowLevelServer::join_threads after ioContext net join");
       }
       catch (...)
       {
-        logger().log(Logger::Level::Error,
-                     "[trace] LowLevelServer::join_threads ioContext net join threw");
       }
     }
 
@@ -451,31 +419,19 @@ namespace vix::websocket
         continue;
       }
 
-      logger().log(
-          Logger::Level::Error,
-          "[trace] LowLevelServer::join_threads before io join {}",
-          static_cast<unsigned long long>(i));
       ioThreads_[i].join();
-      logger().log(
-          Logger::Level::Error,
-          "[trace] LowLevelServer::join_threads after io join {}",
-          static_cast<unsigned long long>(i));
     }
 
     ioThreads_.clear();
 
     if (!deferred_completion && ioContext_)
     {
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads before ioContext shutdown");
       ioContext_->shutdown();
-      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads after ioContext shutdown");
     }
 
     if (!deferred_completion)
     {
       threadsJoined_.store(true, std::memory_order_release);
     }
-
-    logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads leave");
   }
 } // namespace vix::websocket

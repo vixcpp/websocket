@@ -314,51 +314,18 @@ namespace vix
       int port,
       ConfigureFn &&fn)
   {
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws enter");
-
     register_ws_openapi_docs_once();
-
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after register_ws_openapi_docs_once");
 
     vix::config::Config cfg{configPath};
 
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after config");
-
     auto exec = std::make_shared<vix::executor::RuntimeExecutor>(1u);
 
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after executor");
-
     vix::App app{exec};
-
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after http app");
-
     vix::websocket::Server ws{cfg, exec};
-
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after websocket server");
 
     fn(app, ws);
 
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws before run_http_and_ws");
-
     run_http_and_ws(app, ws, exec, port);
-
-    vix::utils::Logger::getInstance().log(
-        vix::utils::Logger::Level::Error,
-        "[trace] serve_http_and_ws after run_http_and_ws");
   }
 
   /**
