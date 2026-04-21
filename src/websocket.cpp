@@ -25,6 +25,7 @@
 
 #include <vix/async/core/spawn.hpp>
 #include <vix/async/net/tcp.hpp>
+#include <vix/async/net/asio_net_service.hpp>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -58,26 +59,8 @@ namespace vix::websocket
 
     void set_affinity(std::size_t thread_index)
     {
-#ifdef __linux__
-      unsigned int hc = std::thread::hardware_concurrency();
-      if (hc == 0u)
-      {
-        hc = 1u;
-      }
-
-      const unsigned int cpu =
-          static_cast<unsigned int>(thread_index % static_cast<std::size_t>(hc));
-
-      cpu_set_t cpuset;
-      CPU_ZERO(&cpuset);
-      CPU_SET(cpu, &cpuset);
-
-      (void)pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-#else
       (void)thread_index;
-#endif
     }
-
   } // namespace
 
   LowLevelServer::LowLevelServer(
@@ -290,8 +273,17 @@ namespace vix::websocket
 
             try
             {
-              set_affinity(i);
+              logger().log(
+                  Logger::Level::Error,
+                  "[trace] LowLevelServer::io thread {} enter",
+                  static_cast<unsigned long long>(i));
+
               ioContext_->run();
+
+              logger().log(
+                  Logger::Level::Error,
+                  "[trace] LowLevelServer::io thread {} leave",
+                  static_cast<unsigned long long>(i));
             }
             catch (const std::exception &e)
             {
@@ -358,55 +350,88 @@ namespace vix::websocket
 
   std::size_t LowLevelServer::compute_io_thread_count() const
   {
-    const int configured = coreConfig_.getInt("websocket.io_threads", 0);
-    if (configured > 0)
-    {
-      return static_cast<std::size_t>(configured);
-    }
-
-    const unsigned int hc = std::thread::hardware_concurrency();
-    const unsigned int v = (hc != 0u) ? (hc / 2u) : 1u;
-    return static_cast<std::size_t>(std::max(1u, v));
+    return 1;
   }
 
   void LowLevelServer::stop_async()
   {
+    logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async enter");
+
     const bool already =
         stopRequested_.exchange(true, std::memory_order_acq_rel);
 
     if (already)
     {
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async already stopping");
       return;
     }
 
     try
     {
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before listener close");
       if (listener_)
       {
         listener_->close();
       }
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after listener close");
     }
     catch (...)
     {
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async listener close threw");
     }
 
     if (ioContext_)
     {
+      try
+      {
+        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before ioContext net stop");
+        ioContext_->net().stop();
+        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after ioContext net stop");
+      }
+      catch (...)
+      {
+        logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async ioContext net stop threw");
+      }
+
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async before ioContext stop");
       ioContext_->stop();
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async after ioContext stop");
     }
+
+    logger().log(Logger::Level::Error, "[trace] LowLevelServer::stop_async leave");
   }
 
   void LowLevelServer::join_threads()
   {
+    logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads enter");
+
     std::lock_guard<std::mutex> lock(joinMutex_);
 
     if (threadsJoined_.load(std::memory_order_acquire))
     {
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads already joined");
       return;
     }
 
     const std::thread::id current_id = std::this_thread::get_id();
     bool deferred_completion = false;
+
+    if (ioContext_)
+    {
+      try
+      {
+        logger().log(Logger::Level::Error,
+                     "[trace] LowLevelServer::join_threads before ioContext net join");
+        ioContext_->net().join();
+        logger().log(Logger::Level::Error,
+                     "[trace] LowLevelServer::join_threads after ioContext net join");
+      }
+      catch (...)
+      {
+        logger().log(Logger::Level::Error,
+                     "[trace] LowLevelServer::join_threads ioContext net join threw");
+      }
+    }
 
     for (std::size_t i = 0; i < ioThreads_.size(); ++i)
     {
@@ -426,14 +451,31 @@ namespace vix::websocket
         continue;
       }
 
+      logger().log(
+          Logger::Level::Error,
+          "[trace] LowLevelServer::join_threads before io join {}",
+          static_cast<unsigned long long>(i));
       ioThreads_[i].join();
+      logger().log(
+          Logger::Level::Error,
+          "[trace] LowLevelServer::join_threads after io join {}",
+          static_cast<unsigned long long>(i));
     }
 
     ioThreads_.clear();
+
+    if (!deferred_completion && ioContext_)
+    {
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads before ioContext shutdown");
+      ioContext_->shutdown();
+      logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads after ioContext shutdown");
+    }
 
     if (!deferred_completion)
     {
       threadsJoined_.store(true, std::memory_order_release);
     }
+
+    logger().log(Logger::Level::Error, "[trace] LowLevelServer::join_threads leave");
   }
 } // namespace vix::websocket

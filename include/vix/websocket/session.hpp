@@ -123,6 +123,14 @@ namespace vix::websocket
      */
     void emit_error(const std::string &message);
 
+    /**
+     * @brief Force immediate shutdown of the session transport.
+     *
+     * This is intended for server shutdown paths where we must not depend on
+     * asynchronously scheduled close work.
+     */
+    void shutdown_now() noexcept;
+
   private:
     /**
      * @brief Perform the HTTP Upgrade handshake.
@@ -169,13 +177,6 @@ namespace vix::websocket
      * @param payload Frame payload to queue.
      */
     void do_enqueue_message(bool isBinary, std::string payload);
-
-    /**
-     * @brief Write the next queued outgoing message if any.
-     *
-     * @return Task representing one write step.
-     */
-    task<void> do_write_next();
 
     /**
      * @brief Trigger flushing of queued outgoing messages.

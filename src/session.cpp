@@ -233,6 +233,14 @@ namespace vix::websocket
 
     if (must_close)
     {
+      open_ = false;
+      stop_heartbeat();
+
+      if (router_)
+      {
+        notify_close_once(*this, router_, closeNotified_);
+      }
+
       co_await close_stream_only();
     }
 
@@ -241,19 +249,74 @@ namespace vix::websocket
 
   void Session::send_text(std::string_view text)
   {
-    do_enqueue_message(false, std::string{text});
+    if (closing_)
+    {
+      return;
+    }
+
+    auto self = shared_from_this();
+    const std::string payload{text};
+
+    ioc_->post([self, payload]()
+               {
+    if (self->closing_)
+    {
+      return;
+    }
+
+    self->do_enqueue_message(false, payload); });
   }
 
   void Session::send_binary(const void *data, std::size_t size)
   {
-    if (data == nullptr || size == 0)
+    if (closing_)
     {
-      do_enqueue_message(true, {});
       return;
     }
 
-    const auto *ptr = static_cast<const char *>(data);
-    do_enqueue_message(true, std::string(ptr, ptr + size));
+    std::string payload;
+    if (data != nullptr && size != 0)
+    {
+      const auto *ptr = static_cast<const char *>(data);
+      payload.assign(ptr, ptr + size);
+    }
+
+    auto self = shared_from_this();
+    ioc_->post([self, payload = std::move(payload)]() mutable
+               {
+    if (self->closing_)
+    {
+      return;
+    }
+
+    self->do_enqueue_message(true, std::move(payload)); });
+  }
+
+  task<void> Session::write_raw_frame(const std::vector<std::byte> &frame)
+  {
+    if (!stream_ || !stream_->is_open())
+    {
+      throw std::runtime_error("stream not open");
+    }
+
+    std::size_t written = 0;
+    while (written < frame.size())
+    {
+      const std::size_t n = co_await stream_->async_write(
+          std::span<const std::byte>(
+              frame.data() + written,
+              frame.size() - written),
+          writeCancel_.token());
+
+      if (n == 0)
+      {
+        throw std::runtime_error("websocket frame write failed");
+      }
+
+      written += n;
+    }
+
+    co_return;
   }
 
   void Session::close(std::string)
@@ -489,67 +552,12 @@ namespace vix::websocket
       return;
     }
 
-    {
-      std::lock_guard<std::mutex> lock(writeMutex_);
-      writeQueue_.push_back(PendingMessage{
-          isBinary,
-          std::move(payload),
-      });
-    }
+    writeQueue_.push_back(PendingMessage{
+        isBinary,
+        std::move(payload),
+    });
 
     trigger_write_flush();
-  }
-
-  task<void> Session::do_write_next()
-  {
-    while (true)
-    {
-      PendingMessage msg{};
-
-      {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        if (closing_)
-        {
-          writeQueue_.clear();
-          writeInProgress_ = false;
-          co_return;
-        }
-
-        if (writeQueue_.empty())
-        {
-          writeInProgress_ = false;
-          co_return;
-        }
-
-        msg = std::move(writeQueue_.front());
-        writeQueue_.pop_front();
-      }
-
-      std::vector<std::byte> frame;
-      if (msg.isBinary)
-      {
-        std::vector<std::byte> payload;
-        payload.reserve(msg.data.size());
-
-        for (char ch : msg.data)
-        {
-          payload.push_back(static_cast<std::byte>(
-              static_cast<unsigned char>(ch)));
-        }
-
-        frame = detail::build_frame(
-            detail::Opcode::Binary,
-            payload,
-            true,
-            false);
-      }
-      else
-      {
-        frame = detail::build_text_frame(msg.data, false);
-      }
-
-      co_await write_raw_frame(frame);
-    }
   }
 
   void Session::emit_error(const std::string &message)
@@ -567,7 +575,9 @@ namespace vix::websocket
     if (lower.find("end of file") != std::string::npos ||
         lower.find("eof") != std::string::npos ||
         lower.find("broken pipe") != std::string::npos ||
-        lower.find("connection reset") != std::string::npos)
+        lower.find("connection reset") != std::string::npos ||
+        lower.find("canceled") != std::string::npos ||
+        lower.find("cancelled") != std::string::npos)
     {
       log().log(
           Logger::Level::Debug,
@@ -589,20 +599,14 @@ namespace vix::websocket
 
   void Session::trigger_write_flush()
   {
-    bool should_start = false;
-
     {
       std::lock_guard<std::mutex> lock(writeMutex_);
-      if (!writeInProgress_ && !writeQueue_.empty())
+      if (writeInProgress_ || writeQueue_.empty() || !ioc_)
       {
-        writeInProgress_ = true;
-        should_start = true;
+        return;
       }
-    }
 
-    if (!should_start || !ioc_)
-    {
-      return;
+      writeInProgress_ = true;
     }
 
     auto self = shared_from_this();
@@ -614,7 +618,55 @@ namespace vix::websocket
 
           try
           {
-            co_await self->do_write_next();
+            while (true)
+            {
+              PendingMessage msg{};
+
+              {
+                std::lock_guard<std::mutex> lock(self->writeMutex_);
+
+                if (self->closing_)
+                {
+                  self->writeQueue_.clear();
+                  self->writeInProgress_ = false;
+                  co_return;
+                }
+
+                if (self->writeQueue_.empty())
+                {
+                  self->writeInProgress_ = false;
+                  co_return;
+                }
+
+                msg = std::move(self->writeQueue_.front());
+                self->writeQueue_.pop_front();
+              }
+
+              std::vector<std::byte> frame;
+              if (msg.isBinary)
+              {
+                std::vector<std::byte> payload;
+                payload.reserve(msg.data.size());
+
+                for (char ch : msg.data)
+                {
+                  payload.push_back(
+                      static_cast<std::byte>(static_cast<unsigned char>(ch)));
+                }
+
+                frame = detail::build_frame(
+                    detail::Opcode::Binary,
+                    payload,
+                    true,
+                    false);
+              }
+              else
+              {
+                frame = detail::build_text_frame(msg.data, false);
+              }
+
+              co_await self->write_raw_frame(frame);
+            }
           }
           catch (const std::exception &e)
           {
@@ -634,33 +686,6 @@ namespace vix::websocket
 
           co_return;
         }());
-  }
-
-  task<void> Session::write_raw_frame(const std::vector<std::byte> &frame)
-  {
-    if (!stream_ || !stream_->is_open())
-    {
-      throw std::runtime_error("stream not open");
-    }
-
-    std::size_t written = 0;
-    while (written < frame.size())
-    {
-      const std::size_t n = co_await stream_->async_write(
-          std::span<const std::byte>(
-              frame.data() + written,
-              frame.size() - written),
-          writeCancel_.token());
-
-      if (n == 0)
-      {
-        throw std::runtime_error("websocket frame write failed");
-      }
-
-      written += n;
-    }
-
-    co_return;
   }
 
   task<std::string> Session::read_http_head()
@@ -770,6 +795,35 @@ namespace vix::websocket
     }
 
     co_return;
+  }
+
+  void Session::shutdown_now() noexcept
+  {
+    bool expected = false;
+    if (!closing_.compare_exchange_strong(expected, true))
+    {
+      return;
+    }
+
+    open_ = false;
+
+    cancel_idle_timer();
+    stop_heartbeat();
+
+    readCancel_.request_cancel();
+    writeCancel_.request_cancel();
+    closeCancel_.request_cancel();
+
+    try
+    {
+      if (stream_ && stream_->is_open())
+      {
+        stream_->close();
+      }
+    }
+    catch (...)
+    {
+    }
   }
 
   void Session::maybe_start_heartbeat()

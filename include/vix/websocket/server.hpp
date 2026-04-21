@@ -225,6 +225,33 @@ namespace vix::websocket
      */
     void stop_async()
     {
+      std::vector<std::shared_ptr<Session>> live_sessions;
+
+      {
+        std::lock_guard<std::mutex> lock(sessionsMutex_);
+        cleanup_sessions_locked();
+
+        live_sessions.reserve(sessions_.size());
+        for (auto &weak : sessions_)
+        {
+          if (auto s = weak.lock())
+          {
+            live_sessions.push_back(std::move(s));
+          }
+        }
+      }
+
+      for (auto &session : live_sessions)
+      {
+        try
+        {
+          session->shutdown_now();
+        }
+        catch (...)
+        {
+        }
+      }
+
       engine_.stop_async();
     }
 
