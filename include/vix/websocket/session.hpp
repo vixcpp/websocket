@@ -231,6 +231,9 @@ namespace vix::websocket
      */
     void stop_heartbeat();
 
+    static task<void> flush_write_loop(std::shared_ptr<Session> self);
+    static task<void> close_sequence(std::shared_ptr<Session> self);
+
   private:
     /** @brief Accepted native TCP stream owned by this session. */
     std::unique_ptr<tcp_stream> stream_;

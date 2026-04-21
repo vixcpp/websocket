@@ -267,6 +267,96 @@ namespace vix::websocket
     self->do_enqueue_message(false, payload); });
   }
 
+  task<void> Session::flush_write_loop(std::shared_ptr<Session> self)
+  {
+    bool must_close = false;
+
+    try
+    {
+      while (true)
+      {
+        PendingMessage msg{};
+
+        {
+          std::lock_guard<std::mutex> lock(self->writeMutex_);
+
+          if (self->closing_)
+          {
+            self->writeQueue_.clear();
+            self->writeInProgress_ = false;
+            co_return;
+          }
+
+          if (self->writeQueue_.empty())
+          {
+            self->writeInProgress_ = false;
+            co_return;
+          }
+
+          msg = std::move(self->writeQueue_.front());
+          self->writeQueue_.pop_front();
+        }
+
+        std::vector<std::byte> frame;
+        if (msg.isBinary)
+        {
+          std::vector<std::byte> payload;
+          payload.reserve(msg.data.size());
+
+          for (char ch : msg.data)
+          {
+            payload.push_back(
+                static_cast<std::byte>(static_cast<unsigned char>(ch)));
+          }
+
+          frame = detail::build_frame(
+              detail::Opcode::Binary,
+              payload,
+              true,
+              false);
+        }
+        else
+        {
+          frame = detail::build_text_frame(msg.data, false);
+        }
+
+        co_await self->write_raw_frame(frame);
+      }
+    }
+    catch (const std::exception &e)
+    {
+      {
+        std::lock_guard<std::mutex> lock(self->writeMutex_);
+        self->writeInProgress_ = false;
+      }
+
+      self->emit_error(e.what());
+      must_close = true;
+    }
+
+    if (must_close)
+    {
+      co_await self->close_stream_only();
+    }
+
+    co_return;
+  }
+
+  task<void> Session::close_sequence(std::shared_ptr<Session> self)
+  {
+    try
+    {
+      co_await self->write_raw_frame(detail::build_close_frame(false));
+    }
+    catch (...)
+    {
+    }
+
+    notify_close_once(*self, self->router_, self->closeNotified_);
+    co_await self->close_stream_only();
+    co_return;
+  }
+
   void Session::send_binary(const void *data, std::size_t size)
   {
     if (closing_)
@@ -332,24 +422,9 @@ namespace vix::websocket
 
     if (ioc_)
     {
-      auto self = shared_from_this();
       spawn_detached(
           *ioc_,
-          [self]() -> task<void>
-          {
-            try
-            {
-              co_await self->write_raw_frame(
-                  detail::build_close_frame(false));
-            }
-            catch (...)
-            {
-            }
-
-            notify_close_once(*self, self->router_, self->closeNotified_);
-            co_await self->close_stream_only();
-            co_return;
-          }());
+          Session::close_sequence(shared_from_this()));
     }
   }
 
@@ -552,14 +627,22 @@ namespace vix::websocket
       return;
     }
 
-    writeQueue_.push_back(PendingMessage{
-        isBinary,
-        std::move(payload),
-    });
+    {
+      std::lock_guard<std::mutex> lock(writeMutex_);
+
+      if (closing_)
+      {
+        return;
+      }
+
+      writeQueue_.push_back(PendingMessage{
+          isBinary,
+          std::move(payload),
+      });
+    }
 
     trigger_write_flush();
   }
-
   void Session::emit_error(const std::string &message)
   {
     std::string lower = message;
@@ -609,83 +692,9 @@ namespace vix::websocket
       writeInProgress_ = true;
     }
 
-    auto self = shared_from_this();
     spawn_detached(
         *ioc_,
-        [self]() -> task<void>
-        {
-          bool must_close = false;
-
-          try
-          {
-            while (true)
-            {
-              PendingMessage msg{};
-
-              {
-                std::lock_guard<std::mutex> lock(self->writeMutex_);
-
-                if (self->closing_)
-                {
-                  self->writeQueue_.clear();
-                  self->writeInProgress_ = false;
-                  co_return;
-                }
-
-                if (self->writeQueue_.empty())
-                {
-                  self->writeInProgress_ = false;
-                  co_return;
-                }
-
-                msg = std::move(self->writeQueue_.front());
-                self->writeQueue_.pop_front();
-              }
-
-              std::vector<std::byte> frame;
-              if (msg.isBinary)
-              {
-                std::vector<std::byte> payload;
-                payload.reserve(msg.data.size());
-
-                for (char ch : msg.data)
-                {
-                  payload.push_back(
-                      static_cast<std::byte>(static_cast<unsigned char>(ch)));
-                }
-
-                frame = detail::build_frame(
-                    detail::Opcode::Binary,
-                    payload,
-                    true,
-                    false);
-              }
-              else
-              {
-                frame = detail::build_text_frame(msg.data, false);
-              }
-
-              co_await self->write_raw_frame(frame);
-            }
-          }
-          catch (const std::exception &e)
-          {
-            {
-              std::lock_guard<std::mutex> lock(self->writeMutex_);
-              self->writeInProgress_ = false;
-            }
-
-            self->emit_error(e.what());
-            must_close = true;
-          }
-
-          if (must_close)
-          {
-            co_await self->close_stream_only();
-          }
-
-          co_return;
-        }());
+        Session::flush_write_loop(shared_from_this()));
   }
 
   task<std::string> Session::read_http_head()
