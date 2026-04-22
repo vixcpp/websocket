@@ -10,14 +10,14 @@
  *
  *  Vix.cpp
  */
+#include <vix/websocket.hpp>
+#include <vix/websocket/protocol.hpp>
+#include <vix/config/Config.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
+
 #include <iostream>
 #include <memory>
 #include <string>
-
-#include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
-#include <vix/websocket.hpp>
-#include <vix/websocket/protocol.hpp>
 
 namespace ws = vix::websocket;
 
@@ -25,7 +25,7 @@ int main()
 {
   auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
 
-  ws::App app{"config/config.json", exec};
+  ws::App app{".env", exec};
   auto &server = app.server();
 
   std::cout << "[minimal] WebSocket server starting on port "
@@ -36,10 +36,12 @@ int main()
       {
         vix::json::kvs payload{
             "message",
-            std::string{"Welcome to minimal Vix WebSocket 👋"},
+            std::string{"Welcome to minimal Vix WebSocket"},
         };
 
-        std::string text = ws::JsonMessage::serialize("system.welcome", payload);
+        std::string text =
+            ws::JsonMessage::serialize("system.welcome", payload);
+
         session.send_text(text);
 
         std::cout << "[minimal] New session opened, welcome sent" << std::endl;

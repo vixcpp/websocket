@@ -42,7 +42,7 @@ int main()
 {
   auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
 
-  App app{"config/config.json", exec};
+  App app{".env", exec};
 
   (void)app.ws("/chat", handle_chat);
 

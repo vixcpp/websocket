@@ -337,7 +337,7 @@ namespace vix
   template <typename ConfigureFn>
   inline void serve_http_and_ws(ConfigureFn &&fn)
   {
-    serve_http_and_ws("config/config.json", 8080, std::forward<ConfigureFn>(fn));
+    serve_http_and_ws(".env", 8080, std::forward<ConfigureFn>(fn));
   }
 
 } // namespace vix

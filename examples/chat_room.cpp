@@ -52,7 +52,7 @@ int main()
   using vix::websocket::Server;
 
   // 1) Load config
-  vix::config::Config cfg{"config/config.json"};
+  vix::config::Config cfg{".env"};
 
   // 2) Runtime executor for async WebSocket processing
   auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
