@@ -244,6 +244,60 @@ namespace vix
   }
 
   /**
+   * @brief Run HTTP and WebSocket servers together in blocking mode using a shared config.
+   *
+   * The HTTP app receives the full core configuration, not only the port.
+   * This allows TLS, WAF, timeout and other HTTP options to be applied while
+   * the WebSocket server uses the same configuration source.
+   *
+   * @param app HTTP application instance.
+   * @param ws WebSocket server instance.
+   * @param exec Shared runtime executor.
+   * @param cfg Core application configuration.
+   */
+  inline void run_http_and_ws(
+      vix::App &app,
+      vix::websocket::Server &ws,
+      std::shared_ptr<vix::executor::RuntimeExecutor> exec,
+      const vix::config::Config &cfg)
+  {
+    register_ws_openapi_docs_once();
+
+    auto r = app.router();
+    if (r)
+    {
+      vix::openapi::register_openapi_and_docs(*r, "Vix API", "1.33.0");
+    }
+
+    vix::websocket::AttachedRuntime runtime{app, ws, exec};
+
+    app.listen(
+        cfg,
+        [&]()
+        {
+          if (!app.has_server_ready_info())
+          {
+            console.warn("server ready info not available");
+            return;
+          }
+
+          auto info = app.server_ready_info();
+          info.show_ws = true;
+          info.ws_scheme = cfg.isTlsEnabled() ? "wss" : "ws";
+          info.ws_host = "localhost";
+          info.ws_port = ws.port();
+          info.ws_path = "/";
+
+          vix::utils::RuntimeBanner::emit_server_ready(info);
+        });
+
+    app.wait();
+    app.close();
+
+    runtime.finalize_shutdown();
+  }
+
+  /**
    * @brief Run HTTP and WebSocket servers together in blocking mode.
    *
    * Registers WebSocket OpenAPI docs once, starts the attached WebSocket
@@ -260,40 +314,10 @@ namespace vix
       std::shared_ptr<vix::executor::RuntimeExecutor> exec,
       int port = 8080)
   {
-    register_ws_openapi_docs_once();
+    vix::config::Config cfg{};
+    cfg.setServerPort(port);
 
-    auto r = app.router();
-    if (r)
-    {
-      vix::openapi::register_openapi_and_docs(*r, "Vix API", "1.33.0");
-    }
-
-    vix::websocket::AttachedRuntime runtime{app, ws, exec};
-
-    app.listen(
-        port,
-        [&]()
-        {
-          if (!app.has_server_ready_info())
-          {
-            console.warn("server ready info not available");
-            return;
-          }
-
-          auto info = app.server_ready_info();
-          info.show_ws = true;
-          info.ws_scheme = "ws";
-          info.ws_host = "localhost";
-          info.ws_port = ws.port();
-          info.ws_path = "/";
-
-          vix::utils::RuntimeBanner::emit_server_ready(info);
-        });
-
-    app.wait();
-    app.close();
-
-    runtime.finalize_shutdown();
+    run_http_and_ws(app, ws, std::move(exec), cfg);
   }
 
   /**
@@ -317,6 +341,7 @@ namespace vix
     register_ws_openapi_docs_once();
 
     vix::config::Config cfg{configPath};
+    cfg.setServerPort(port);
 
     auto exec = std::make_shared<vix::executor::RuntimeExecutor>(1u);
 
@@ -325,7 +350,7 @@ namespace vix
 
     fn(app, ws);
 
-    run_http_and_ws(app, ws, exec, port);
+    run_http_and_ws(app, ws, exec, cfg);
   }
 
   /**
