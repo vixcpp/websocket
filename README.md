@@ -1,81 +1,83 @@
-# WebSocket - Vix.cpp
+# Vix.cpp WebSocket Module
 
-Build real-time systems in C++.
-No glue code. No fragmented stack. Just one runtime.
+Native realtime communication for Vix.cpp.
 
-## What is this?
+The WebSocket module provides the runtime layer used to build realtime C++ applications with WebSocket servers, clients, sessions, typed messages, rooms, broadcasting, long-polling fallback, metrics, and message persistence.
 
-The Vix WebSocket module lets you build production-ready realtime systems with:
+## Documentation
 
-- native WebSocket server
-- typed message protocol (`type + payload`)
-- room-based messaging
-- HTTP + WebSocket unified runtime
-- long-polling fallback
-- persistent message storage (SQLite)
-- built-in metrics (Prometheus)
+Full documentation is available here:
 
-All powered by the same runtime.
+https://docs.vixcpp.com/modules/websocket/
 
-## Why this exists
+API reference:
 
-Building realtime systems in C++ is usually painful:
+https://docs.vixcpp.com/modules/websocket/api-reference
 
-- multiple libraries (HTTP, WS, JSON, threads)
-- inconsistent models
-- no unified runtime
-- complex setup
+## What WebSocket provides
 
-Vix removes that friction.
+- Native WebSocket server
+- Native WebSocket client
+- Per-connection sessions
+- Event routing
+- Typed JSON messages
+- Rooms and broadcasting
+- Long-polling fallback
+- HTTP bridge APIs
+- Prometheus-style metrics
+- Message persistence interfaces
+- SQLite-backed message storage
+- OpenAPI documentation helpers
+- Integration with `vix::App`
+- Shared runtime execution through `RuntimeExecutor`
 
-You get a single, coherent system where:
+## Public header
 
-- HTTP and WebSocket share the same runtime
-- messages follow a consistent protocol
-- async is handled for you
-- production features are built-in
-
-## Install
-
-```bash
-curl -fsSL https://vixcpp.com/install.sh | bash
+```cpp
+#include <vix/websocket.hpp>
 ```
 
-## Minimal example
+For HTTP and WebSocket together:
 
 ```cpp
 #include <vix.hpp>
 #include <vix/websocket.hpp>
+```
+
+## Minimal WebSocket server
+
+```cpp
+#include <memory>
+#include <string>
+
+#include <vix/config/Config.hpp>
+#include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/websocket.hpp>
 
 int main()
 {
-  auto exec = std::make_shared<vix::executor::RuntimeExecutor>();
+  vix::config::Config config{".env"};
 
-  vix::config::Config cfg{".env"};
-  vix::websocket::Server ws(cfg, exec);
+  auto executor =
+      std::make_shared<vix::executor::RuntimeExecutor>(4);
 
-  ws.on_open([](auto& session) {
-    session.send_text(
-      vix::websocket::JsonMessage::serialize(
-        "system.welcome",
-        {"message", "Hello from Vix"}
-      )
-    );
-  });
+  vix::websocket::Server ws{config, executor};
 
-  ws.on_typed_message([&](auto&, const std::string& type, const vix::json::kvs& payload) {
-    if (type == "chat.message") {
-      ws.broadcast_json("chat.message", payload);
-    }
-  });
+  ws.on_message(
+    [](vix::websocket::Session &session, const std::string &message)
+    {
+      session.send_text("echo: " + message);
+    });
 
   ws.listen_blocking();
+
+  return 0;
 }
 ```
 
-## Typed protocol
+## Typed messages
 
-Vix uses a simple and consistent format:
+Vix WebSocket supports a typed JSON message model:
 
 ```json
 {
@@ -87,110 +89,162 @@ Vix uses a simple and consistent format:
 }
 ```
 
-You never deal with raw frames.
-You deal with events.
+Example handler:
+
+```cpp
+ws.on_typed_message(
+  [&ws](vix::websocket::Session &session,
+        const std::string &type,
+        const vix::json::kvs &payload)
+  {
+    (void)session;
+
+    if (type == "chat.message")
+    {
+      ws.broadcast_json("chat.message", payload);
+    }
+  });
+```
 
 ## Rooms
 
 ```cpp
-ws.join_room(session, "general");
+ws.join_room(session.shared_from_this(), "general");
 
-ws.broadcast_room_json(
+ws.broadcast_text_to_room(
   "general",
-  "chat.message",
-  {"user", "Ada", "text", "Hello"}
-);
+  "Hello room");
 ```
 
-## HTTP + WebSocket together
+## HTTP and WebSocket together
 
 ```cpp
-vix::run_http_and_ws(app, ws, executor, 8080);
+#include <memory>
+
+#include <vix.hpp>
+#include <vix/websocket.hpp>
+
+int main()
+{
+  vix::App app;
+
+  auto executor =
+      std::make_shared<vix::executor::RuntimeExecutor>(4);
+
+  vix::websocket::Server ws{app.config(), executor};
+
+  app.get("/", [](vix::Request &req, vix::Response &res)
+  {
+    (void)req;
+
+    res.text("HTTP + WebSocket");
+  });
+
+  ws.on_message(
+    [](vix::websocket::Session &session, const std::string &message)
+    {
+      session.send_text("echo: " + message);
+    });
+
+  vix::websocket::AttachedRuntime runtime{app, ws, executor};
+
+  app.run(8080);
+
+  return 0;
+}
 ```
 
-One runtime. One system.
-
-## Long polling fallback
-
-When WebSocket is not available:
-
-- `/ws/poll` -> receive messages
-- `/ws/send` -> send messages
-
-Same protocol. Same events.
-
-## Persistence (SQLite)
-
-```cpp
-vix::websocket::SqliteMessageStore store{"chat.db"};
-
-store.append(msg);
-store.list_by_room("general", 50);
-```
-
-Works with WAL. Designed for reliability.
-
-## Metrics
-
-```cpp
-vix::websocket::WebSocketMetrics metrics;
-
-metrics.connections_total
-metrics.messages_in_total
-metrics.messages_out_total
-```
-
-Expose with:
+## WebSocket architecture
 
 ```text
-GET /metrics
+Server
+  -> LowLevelServer
+  -> Session
+  -> Router
+  -> user callbacks
 ```
 
-Prometheus-ready.
-
-## What you can build
-
-- chat systems
-- realtime dashboards
-- monitoring systems
-- collaborative tools
-- live APIs
-- messaging platforms
-
-## Examples
-
-See:
+For HTTP and WebSocket together:
 
 ```text
-examples/websocket/
+vix::App
+  -> HTTP server
+
+vix::websocket::Server
+  -> WebSocket server
+
+AttachedRuntime
+  -> shared lifecycle
+  -> shared RuntimeExecutor
+  -> coordinated shutdown
 ```
 
-- minimal server
-- HTTP + WS
-- chat with rooms
-- persistent chat
-- long-polling fallback
-- metrics runtime
-- native client
-- realtime dashboard
+## Build
 
-## Design philosophy
+Contributors should use the Vix CLI to build this module.
 
-Vix is not a wrapper.
-It is a runtime.
+Vix wraps the C++ build workflow with project detection, presets, Ninja builds, clean logs, caching, and focused diagnostics. This keeps the contributor workflow consistent and helps avoid hidden C++ build issues.
 
-- one model
-- one protocol
-- one execution system
-- no hidden layers
+### Build the project
 
-Everything is explicit, predictable, and production-ready.
+```bash
+git clone https://github.com/vixcpp/vix.git
+cd vix
+vix build
+```
 
-## Learn more
+### Build all targets
 
-Learn more about the Vix runtime in the documentation.
+Use this before running the full test suite, install workflows, or release checks:
+
+```bash
+vix build --build-target all
+```
+
+### Clean rebuild
+
+Use this when the local CMake cache or build directory may be stale:
+
+```bash
+vix build --clean
+```
+
+### Release build
+
+```bash
+vix build --preset release
+```
+
+## Tests
+
+Build all targets first, then run tests:
+
+```bash
+vix build --build-target all
+vix tests
+```
+
+Before opening a pull request, use:
+
+```bash
+vix fmt --check
+vix build --build-target all
+vix tests
+```
+
+## Useful links
+
+- WebSocket documentation: https://docs.vixcpp.com/modules/websocket/
+- WebSocket API reference: https://docs.vixcpp.com/modules/websocket/api-reference
+- Build command: https://docs.vixcpp.com/cli/build
+- Tests command: https://docs.vixcpp.com/cli/tests
+- Documentation: https://docs.vixcpp.com/
+- Engineering notes: https://blog.vixcpp.com/
+- Registry: https://registry.vixcpp.com/
+- GitHub: https://github.com/vixcpp/vix
 
 ## License
 
 MIT License.
 
+See [`LICENSE`](../../LICENSE) for details.
