@@ -182,7 +182,7 @@ jobs:
             -DVIX_WEBSOCKET_FETCH_CORE=OFF \
             -DVIX_WEBSOCKET_FETCH_UTILS=OFF \
             -DVIX_CORE_WITH_OPENSSL=OFF \
-            -DVIX_CORE_WITH_TEMPLATE=OFF \
+            -DVIX_CORE_WITH_TEMPLATE=AUTO \
             -DVIX_CORE_WITH_MYSQL=OFF
 
       - name: Build
@@ -267,7 +267,7 @@ jobs:
             -DVIX_WEBSOCKET_FETCH_CORE=OFF \
             -DVIX_WEBSOCKET_FETCH_UTILS=OFF \
             -DVIX_CORE_WITH_OPENSSL=OFF \
-            -DVIX_CORE_WITH_TEMPLATE=OFF \
+            -DVIX_CORE_WITH_TEMPLATE=AUTO \
             -DVIX_CORE_WITH_MYSQL=OFF
 
       - name: Build SQLite build
@@ -389,7 +389,7 @@ jobs:
             -DVIX_WEBSOCKET_FETCH_CORE=OFF \
             -DVIX_WEBSOCKET_FETCH_UTILS=OFF \
             -DVIX_CORE_WITH_OPENSSL=OFF \
-            -DVIX_CORE_WITH_TEMPLATE=OFF \
+            -DVIX_CORE_WITH_TEMPLATE=AUTO \
             -DVIX_CORE_WITH_MYSQL=OFF
 
       - name: Run clang-tidy
@@ -482,7 +482,7 @@ jobs:
             -DVIX_WEBSOCKET_FETCH_CORE=OFF \
             -DVIX_WEBSOCKET_FETCH_UTILS=OFF \
             -DVIX_CORE_WITH_OPENSSL=OFF \
-            -DVIX_CORE_WITH_TEMPLATE=OFF \
+            -DVIX_CORE_WITH_TEMPLATE=AUTO \
             -DVIX_CORE_WITH_MYSQL=OFF
 
       - name: Build release mode with JSON AUTO
@@ -499,7 +499,7 @@ jobs:
             -DVIX_WEBSOCKET_FETCH_CORE=OFF \
             -DVIX_WEBSOCKET_FETCH_UTILS=OFF \
             -DVIX_CORE_WITH_OPENSSL=OFF \
-            -DVIX_CORE_WITH_TEMPLATE=OFF \
+            -DVIX_CORE_WITH_TEMPLATE=AUTO \
             -DVIX_CORE_WITH_MYSQL=OFF
 
       - name: Build release mode with JSON OFF
