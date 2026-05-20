@@ -48,6 +48,24 @@ file(GLOB_RECURSE WEBSOCKET_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
+# JSON dependency
+# Core needs vix::json to be available before it is configured.
+if (NOT TARGET vix::json AND NOT TARGET vix_json)
+  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../json/CMakeLists.txt")
+    message(STATUS "[websocket] Adding json from sibling: ../json")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../json" "${CMAKE_CURRENT_BINARY_DIR}/json")
+  endif()
+endif()
+
+# Template dependency
+# Core can use vix::template if it is available before core is configured.
+if (NOT TARGET vix::template AND NOT TARGET template)
+  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../template/CMakeLists.txt")
+    message(STATUS "[websocket] Adding template from sibling: ../template")
+    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../template" "${CMAKE_CURRENT_BINARY_DIR}/template")
+  endif()
+endif()
+
 # Core dependency
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
