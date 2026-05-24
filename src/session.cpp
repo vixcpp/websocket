@@ -87,6 +87,130 @@ namespace vix::websocket
       return s;
     }
 
+    enum class DisconnectReason
+    {
+      ClientClosed,
+      ConnectionReset,
+      IdleTimeout,
+      ReadCancelled,
+      WriteCancelled,
+      ProtocolError,
+      Unknown
+    };
+
+    inline bool contains_icase(
+        const std::string &value,
+        const std::string &needle)
+    {
+      return to_lower_copy(value).find(to_lower_copy(needle)) != std::string::npos;
+    }
+
+    inline DisconnectReason classify_disconnect_reason(const std::string &message)
+    {
+      if (contains_icase(message, "end of file") ||
+          contains_icase(message, "eof") ||
+          contains_icase(message, "unexpected eof"))
+      {
+        return DisconnectReason::ClientClosed;
+      }
+
+      if (contains_icase(message, "connection reset") ||
+          contains_icase(message, "connection reset by peer") ||
+          contains_icase(message, "broken pipe"))
+      {
+        return DisconnectReason::ConnectionReset;
+      }
+
+      if (contains_icase(message, "idle timeout") ||
+          contains_icase(message, "timed out") ||
+          contains_icase(message, "timeout"))
+      {
+        return DisconnectReason::IdleTimeout;
+      }
+
+      if (contains_icase(message, "operation canceled") ||
+          contains_icase(message, "operation cancelled") ||
+          contains_icase(message, "read canceled") ||
+          contains_icase(message, "read cancelled"))
+      {
+        return DisconnectReason::ReadCancelled;
+      }
+
+      if (contains_icase(message, "write canceled") ||
+          contains_icase(message, "write cancelled"))
+      {
+        return DisconnectReason::WriteCancelled;
+      }
+
+      if (contains_icase(message, "bad websocket") ||
+          contains_icase(message, "invalid websocket") ||
+          contains_icase(message, "missing upgrade") ||
+          contains_icase(message, "missing connection") ||
+          contains_icase(message, "unsupported sec-websocket-version") ||
+          contains_icase(message, "websocket handshake"))
+      {
+        return DisconnectReason::ProtocolError;
+      }
+
+      return DisconnectReason::Unknown;
+    }
+
+    inline std::string disconnect_reason_name(DisconnectReason reason)
+    {
+      switch (reason)
+      {
+      case DisconnectReason::ClientClosed:
+        return "client_closed";
+      case DisconnectReason::ConnectionReset:
+        return "connection_reset";
+      case DisconnectReason::IdleTimeout:
+        return "idle_timeout";
+      case DisconnectReason::ReadCancelled:
+        return "read_cancelled";
+      case DisconnectReason::WriteCancelled:
+        return "write_cancelled";
+      case DisconnectReason::ProtocolError:
+        return "protocol_error";
+      case DisconnectReason::Unknown:
+        return "unknown";
+      }
+
+      return "unknown";
+    }
+
+    inline std::string disconnect_detail(const std::string &message)
+    {
+      if (contains_icase(message, "end of file") ||
+          contains_icase(message, "eof"))
+      {
+        return "eof";
+      }
+
+      if (contains_icase(message, "connection reset"))
+      {
+        return "reset";
+      }
+
+      if (contains_icase(message, "broken pipe"))
+      {
+        return "broken_pipe";
+      }
+
+      if (contains_icase(message, "timeout") ||
+          contains_icase(message, "timed out"))
+      {
+        return "timeout";
+      }
+
+      if (contains_icase(message, "operation canceled") ||
+          contains_icase(message, "operation cancelled"))
+      {
+        return "cancelled";
+      }
+
+      return trim_copy(message);
+    }
+
     inline bool starts_with_icase(std::string_view s, std::string_view prefix)
     {
       if (prefix.size() > s.size())
@@ -647,18 +771,37 @@ namespace vix::websocket
 
   void Session::emit_error(const std::string &message)
   {
-    if (vix::utils::is_normal_network_disconnect_message(message))
+    const DisconnectReason reason =
+        classify_disconnect_reason(message);
+
+    if (vix::utils::is_normal_network_disconnect_message(message) ||
+        reason == DisconnectReason::ClientClosed ||
+        reason == DisconnectReason::ConnectionReset ||
+        reason == DisconnectReason::ReadCancelled ||
+        reason == DisconnectReason::WriteCancelled)
     {
       log().log(
           Logger::Level::Debug,
-          "[ws] client disconnected: {}",
-          message);
+          "[ws] client disconnected reason={} detail={}",
+          disconnect_reason_name(reason),
+          disconnect_detail(message));
+      return;
+    }
+
+    if (reason == DisconnectReason::IdleTimeout)
+    {
+      log().log(
+          Logger::Level::Debug,
+          "[ws] client disconnected reason={} detail={}",
+          disconnect_reason_name(reason),
+          disconnect_detail(message));
       return;
     }
 
     log().log(
         Logger::Level::Error,
-        "[ws] {}",
+        "[ws] error reason={} detail={}",
+        disconnect_reason_name(reason),
         message);
 
     if (router_)
