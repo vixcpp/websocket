@@ -293,6 +293,11 @@ namespace vix::websocket
     /** @brief True while a write flush is already in progress. */
     bool writeInProgress_{false};
 
+    std::size_t queuedWriteBytes_{0};
+
+    static constexpr std::size_t MAX_PENDING_WRITE_MESSAGES = 1024;
+    static constexpr std::size_t MAX_PENDING_WRITE_BYTES = 4 * 1024 * 1024;
+
     /** @brief Protects write queue and write state. */
     std::mutex writeMutex_{};
   };

@@ -408,6 +408,7 @@ namespace vix::websocket
           if (self->closing_)
           {
             self->writeQueue_.clear();
+            self->queuedWriteBytes_ = 0;
             self->writeInProgress_ = false;
             co_return;
           }
@@ -420,6 +421,15 @@ namespace vix::websocket
 
           msg = std::move(self->writeQueue_.front());
           self->writeQueue_.pop_front();
+
+          if (self->queuedWriteBytes_ >= msg.data.size())
+          {
+            self->queuedWriteBytes_ -= msg.data.size();
+          }
+          else
+          {
+            self->queuedWriteBytes_ = 0;
+          }
         }
 
         std::vector<std::byte> frame;
@@ -752,6 +762,9 @@ namespace vix::websocket
       return;
     }
 
+    const std::size_t payloadSize = payload.size();
+    bool overflow = false;
+
     {
       std::lock_guard<std::mutex> lock(writeMutex_);
 
@@ -760,10 +773,32 @@ namespace vix::websocket
         return;
       }
 
-      writeQueue_.push_back(PendingMessage{
-          isBinary,
-          std::move(payload),
-      });
+      if (writeQueue_.size() >= MAX_PENDING_WRITE_MESSAGES ||
+          queuedWriteBytes_ + payloadSize > MAX_PENDING_WRITE_BYTES)
+      {
+        overflow = true;
+      }
+      else
+      {
+        queuedWriteBytes_ += payloadSize;
+
+        writeQueue_.push_back(PendingMessage{
+            isBinary,
+            std::move(payload),
+        });
+      }
+    }
+
+    if (overflow)
+    {
+      log().log(
+          Logger::Level::Warn,
+          "[ws] closing slow client reason=backpressure queue_messages={} queue_bytes={}",
+          MAX_PENDING_WRITE_MESSAGES,
+          MAX_PENDING_WRITE_BYTES);
+
+      close("backpressure");
+      return;
     }
 
     trigger_write_flush();
@@ -921,9 +956,15 @@ namespace vix::websocket
     open_ = false;
     closing_ = true;
 
+    {
+      std::lock_guard<std::mutex> lock(writeMutex_);
+      writeQueue_.clear();
+      queuedWriteBytes_ = 0;
+      writeInProgress_ = false;
+    }
+
     cancel_idle_timer();
     stop_heartbeat();
-
     readCancel_.request_cancel();
     writeCancel_.request_cancel();
     closeCancel_.request_cancel();
