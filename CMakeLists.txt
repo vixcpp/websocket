@@ -309,9 +309,18 @@ else()
   )
 endif()
 
+# Tests (optional)
+option(VIX_WEBSOCKET_BUILD_TESTS "Build websocket module tests" OFF)
+
+if (VIX_WEBSOCKET_BUILD_TESTS)
+  include(CTest)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+
 # Examples (optional)
 option(VIX_WEBSOCKET_BUILD_EXAMPLES
-       "Build WebSocket examples (server + HTML chat demo)" ON)
+       "Build WebSocket examples (server + HTML chat demo)" OFF)
 
 if (VIX_WEBSOCKET_BUILD_EXAMPLES)
   add_subdirectory(examples)

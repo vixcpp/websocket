@@ -56,6 +56,34 @@ namespace vix::websocket
             log.setFormatFromEnv("VIX_LOG_FORMAT");
           });
     }
+
+    std::string get_config_string_fallback(
+        vix::config::Config &config,
+        const std::string &primary,
+        const std::string &fallback,
+        const std::string &defaultValue)
+    {
+      const std::string value = config.getString(primary, "");
+
+      if (!value.empty())
+        return value;
+
+      return config.getString(fallback, defaultValue);
+    }
+
+    int get_config_int_fallback(
+        vix::config::Config &config,
+        const std::string &primary,
+        const std::string &fallback,
+        int defaultValue)
+    {
+      const int primaryValue = config.getInt(primary, -1);
+
+      if (primaryValue >= 0)
+        return primaryValue;
+
+      return config.getInt(fallback, defaultValue);
+    }
   } // namespace
 
   LowLevelServer::LowLevelServer(
@@ -81,7 +109,12 @@ namespace vix::websocket
           "vix::websocket::LowLevelServer requires a valid runtime executor");
     }
 
-    const int port = coreConfig_.getInt("websocket.port", 9090);
+    const int port =
+        get_config_int_fallback(
+            coreConfig_,
+            "websocket.port",
+            "websocket_port",
+            9090);
     if ((port != 0 && port < 1024) || port > 65535)
     {
       logger().log(
@@ -111,8 +144,20 @@ namespace vix::websocket
   vix::async::net::tcp_endpoint LowLevelServer::make_bind_endpoint() const
   {
     vix::async::net::tcp_endpoint ep{};
-    ep.host = coreConfig_.getString("websocket.host", "0.0.0.0");
-    ep.port = static_cast<std::uint16_t>(coreConfig_.getInt("websocket.port", 9090));
+    ep.host =
+        get_config_string_fallback(
+            const_cast<vix::config::Config &>(coreConfig_),
+            "websocket.host",
+            "websocket_host",
+            "0.0.0.0");
+
+    ep.port =
+        static_cast<std::uint16_t>(
+            get_config_int_fallback(
+                const_cast<vix::config::Config &>(coreConfig_),
+                "websocket.port",
+                "websocket_port",
+                9090));
     return ep;
   }
 
@@ -127,7 +172,13 @@ namespace vix::websocket
     try
     {
       vix::async::net::tcp_endpoint endpoint{};
-      endpoint.host = coreConfig_.getString("websocket.host", "0.0.0.0");
+      endpoint.host =
+          get_config_string_fallback(
+              coreConfig_,
+              "websocket.host",
+              "websocket_host",
+              "0.0.0.0");
+
       endpoint.port = port;
 
       co_await listener_->async_listen(endpoint);
@@ -149,7 +200,12 @@ namespace vix::websocket
 
   vix::async::core::task<void> LowLevelServer::start_server()
   {
-    const int port = coreConfig_.getInt("websocket.port", 9090);
+    const int port =
+        get_config_int_fallback(
+            coreConfig_,
+            "websocket.port",
+            "websocket_port",
+            9090);
 
     co_await init_listener(static_cast<unsigned short>(port));
 
@@ -176,8 +232,8 @@ namespace vix::websocket
     init_logger_from_env_once();
     vix::utils::console_wait_banner();
 
-    start_io_threads();
     spawn_detached(*ioContext_, start_server());
+    start_io_threads();
   }
 
   void LowLevelServer::start_accept()

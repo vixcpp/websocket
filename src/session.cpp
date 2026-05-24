@@ -30,6 +30,7 @@
 #include <vector>
 
 #include <vix/async/core/spawn.hpp>
+#include <vix/utils/NetworkError.hpp>
 
 namespace vix::websocket
 {
@@ -643,24 +644,10 @@ namespace vix::websocket
 
     trigger_write_flush();
   }
+
   void Session::emit_error(const std::string &message)
   {
-    std::string lower = message;
-    std::transform(
-        lower.begin(),
-        lower.end(),
-        lower.begin(),
-        [](unsigned char c)
-        {
-          return static_cast<char>(std::tolower(c));
-        });
-
-    if (lower.find("end of file") != std::string::npos ||
-        lower.find("eof") != std::string::npos ||
-        lower.find("broken pipe") != std::string::npos ||
-        lower.find("connection reset") != std::string::npos ||
-        lower.find("canceled") != std::string::npos ||
-        lower.find("cancelled") != std::string::npos)
+    if (vix::utils::is_normal_network_disconnect_message(message))
     {
       log().log(
           Logger::Level::Debug,
