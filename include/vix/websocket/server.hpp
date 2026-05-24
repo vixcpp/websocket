@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -297,6 +298,20 @@ namespace vix::websocket
     int port() const
     {
       return cfg_.getInt("websocket.port", 9090);
+    }
+
+    /**
+     * @brief Return the current number of active WebSocket sessions.
+     *
+     * Expired sessions are removed before counting.
+     *
+     * @return Number of currently alive sessions.
+     */
+    std::size_t active_session_count()
+    {
+      std::lock_guard<std::mutex> lock(sessionsMutex_);
+      cleanup_sessions_locked();
+      return sessions_.size();
     }
 
     /**
