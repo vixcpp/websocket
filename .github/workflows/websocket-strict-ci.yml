@@ -113,6 +113,7 @@ jobs:
             ../env \
             ../utils \
             ../async \
+            ../io \
             ../json \
             ../template \
             ../core
@@ -122,6 +123,7 @@ jobs:
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/env.git ../env
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/io.git ../io
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
@@ -148,6 +150,7 @@ jobs:
           test -f ../env/CMakeLists.txt
           test -f ../utils/CMakeLists.txt
           test -f ../async/CMakeLists.txt
+          test -f ../io/CMakeLists.txt
           test -f ../json/CMakeLists.txt
           test -f ../core/CMakeLists.txt
 
@@ -161,6 +164,7 @@ jobs:
           EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../env/include"
           EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../utils/include"
           EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../async/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../io/include"
           EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
           EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../core/include"
 
@@ -233,6 +237,7 @@ jobs:
             ../env \
             ../utils \
             ../async \
+            ../io \
             ../json \
             ../template \
             ../core
@@ -242,9 +247,12 @@ jobs:
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/env.git ../env
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/io.git ../io
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
 
       - name: Prepare Asio for async
         run: |
@@ -256,6 +264,40 @@ jobs:
           cp -r /usr/include/asio* ../async/third_party/asio/include/ || true
 
           test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Verify required sibling dependencies
+        run: |
+          set -euxo pipefail
+
+          test -f ../error/CMakeLists.txt
+          test -f ../path/CMakeLists.txt
+          test -f ../env/CMakeLists.txt
+          test -f ../utils/CMakeLists.txt
+          test -f ../async/CMakeLists.txt
+          test -f ../io/CMakeLists.txt
+          test -f ../json/CMakeLists.txt
+          test -f ../core/CMakeLists.txt
+
+          test -f ../json/include/vix/json/Simple.hpp
+          test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../error/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../path/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../env/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../utils/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../async/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../io/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../core/include"
+
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure SQLite build
         run: |
@@ -356,6 +398,7 @@ jobs:
             ../env \
             ../utils \
             ../async \
+            ../io \
             ../json \
             ../template \
             ../core
@@ -365,9 +408,12 @@ jobs:
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/env.git ../env
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/io.git ../io
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
 
       - name: Prepare Asio for async
         run: |
@@ -377,6 +423,42 @@ jobs:
           rm -rf ../async/third_party/asio/include
           mkdir -p ../async/third_party/asio/include
           cp -r /usr/include/asio* ../async/third_party/asio/include/ || true
+
+          test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Verify required sibling dependencies
+        run: |
+          set -euxo pipefail
+
+          test -f ../error/CMakeLists.txt
+          test -f ../path/CMakeLists.txt
+          test -f ../env/CMakeLists.txt
+          test -f ../utils/CMakeLists.txt
+          test -f ../async/CMakeLists.txt
+          test -f ../io/CMakeLists.txt
+          test -f ../json/CMakeLists.txt
+          test -f ../core/CMakeLists.txt
+
+          test -f ../json/include/vix/json/Simple.hpp
+          test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../error/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../path/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../env/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../utils/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../async/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../io/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../core/include"
+
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure for analysis
         run: |
@@ -450,6 +532,7 @@ jobs:
             ../env \
             ../utils \
             ../async \
+            ../io \
             ../json \
             ../template \
             ../core
@@ -459,9 +542,12 @@ jobs:
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/env.git ../env
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/utils.git ../utils
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" --recurse-submodules https://github.com/vixcpp/async.git ../async
+          git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/io.git ../io
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/json.git ../json
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/template.git ../template || true
           git clone --depth 1 --branch "${VIX_GIT_BRANCH}" https://github.com/vixcpp/core.git ../core
+
+          git -C ../async submodule update --init --recursive --depth 1 || true
 
       - name: Prepare Asio for async
         run: |
@@ -471,6 +557,42 @@ jobs:
           rm -rf ../async/third_party/asio/include
           mkdir -p ../async/third_party/asio/include
           cp -r /usr/include/asio* ../async/third_party/asio/include/ || true
+
+          test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Verify required sibling dependencies
+        run: |
+          set -euxo pipefail
+
+          test -f ../error/CMakeLists.txt
+          test -f ../path/CMakeLists.txt
+          test -f ../env/CMakeLists.txt
+          test -f ../utils/CMakeLists.txt
+          test -f ../async/CMakeLists.txt
+          test -f ../io/CMakeLists.txt
+          test -f ../json/CMakeLists.txt
+          test -f ../core/CMakeLists.txt
+
+          test -f ../json/include/vix/json/Simple.hpp
+          test -f ../async/third_party/asio/include/asio.hpp
+
+      - name: Export dependency include paths
+        run: |
+          EXTRA_PATHS="$GITHUB_WORKSPACE/../error/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../path/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../env/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../utils/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../async/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../io/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../json/include"
+          EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../core/include"
+
+          if [ -d "$GITHUB_WORKSPACE/../template/include" ]; then
+            EXTRA_PATHS="$EXTRA_PATHS:$GITHUB_WORKSPACE/../template/include"
+          fi
+
+          echo "CPATH=$EXTRA_PATHS${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+          echo "CPLUS_INCLUDE_PATH=$EXTRA_PATHS${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}" >> "$GITHUB_ENV"
 
       - name: Configure release mode with JSON AUTO
         run: |
