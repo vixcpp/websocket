@@ -30,6 +30,7 @@
 
 // Core runtime
 #include <vix/websocket/AttachedRuntime.hpp>
+#include <vix/websocket/Runtime.hpp>
 
 // Server / client
 #include <vix/websocket/server.hpp>

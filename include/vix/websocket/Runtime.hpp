@@ -12,8 +12,8 @@
  *
  */
 
-#ifndef VIX_RUNTIME_HPP
-#define VIX_RUNTIME_HPP
+#ifndef VIX_WEB_SOCKET_RUNTIME_HPP
+#define VIX_WEB_SOCKET_RUNTIME_HPP
 
 //
 // Vix.cpp — WebSocket module umbrella header
