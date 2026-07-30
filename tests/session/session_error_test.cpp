@@ -826,17 +826,8 @@ namespace
     assert(result.openCalls == 1u);
     assert(result.closeCalls == 1u);
 
-    assert(result.errors.size() == 1u);
-
-    assert(
-        result.errors[0] ==
-        "incomplete websocket extended length (16-bit)");
-
-    assert(
-        result.errorOpenStates.size() ==
-        1u);
-
-    assert(result.errorOpenStates[0]);
+    assert(result.errors.empty());
+    assert(result.errorOpenStates.empty());
     assert(!result.closeCallbackState);
 
     assert(

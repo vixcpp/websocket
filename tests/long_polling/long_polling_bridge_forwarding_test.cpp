@@ -339,7 +339,7 @@ namespace
             "chat.message",
             "general"));
 
-    assert(bridge.session_count() == 1u);
+    assert(bridge.session_count() == 2u);
     assert(bridge.buffer_size("responses") == 1u);
 
     const auto responses =

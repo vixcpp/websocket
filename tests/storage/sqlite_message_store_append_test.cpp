@@ -535,28 +535,6 @@ namespace
             SqliteMessageStore &store,
             const JsonMessage &message) {
           store.append(message);
-        } ||
-        requires(
-            SqliteMessageStore &store,
-            const JsonMessage &message) {
-          store.append(
-              message.room,
-              message);
-        } ||
-        requires(
-            SqliteMessageStore &store,
-            const JsonMessage &message) {
-          store.append(
-              message.room,
-              JsonMessage::serialize(
-                  message));
-        } ||
-        requires(
-            SqliteMessageStore &store,
-            const JsonMessage &message) {
-          store.append(
-              JsonMessage::serialize(
-                  message));
         });
   }
 

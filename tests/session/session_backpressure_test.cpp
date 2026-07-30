@@ -36,9 +36,23 @@
 #include <vix/websocket/protocol.hpp>
 #include <vix/websocket/router.hpp>
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wkeyword-macro"
+#endif
+
 #define private public
 #include <vix/websocket/session.hpp>
 #undef private
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace
 {

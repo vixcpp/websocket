@@ -253,7 +253,8 @@ namespace vix::websocket::http
       auto maybe = detail::get_json_body(req);
       if (!maybe)
       {
-        res.status(400).json({"error", "missing JSON body"});
+        res.status(400).json(
+            nlohmann::json{{"error", "missing JSON body"}});
         return;
       }
 
@@ -261,17 +262,31 @@ namespace vix::websocket::http
 
       if (!body.is_object())
       {
-        res.status(400).json({"error", "JSON body must be an object"});
+        res.status(400).json(
+            nlohmann::json{{"error", "JSON body must be an object"}});
         return;
       }
     }
     catch (...)
     {
-      res.status(400).json({"error", "invalid JSON body"});
+      res.status(400).json(
+          nlohmann::json{{"error", "invalid JSON body"}});
       return;
     }
 
-    const std::string type = body.value("type", std::string{});
+    const auto string_field =
+        [&body](const char *name) -> std::string
+    {
+      const auto it = body.find(name);
+      if (it == body.end() || !it->is_string())
+      {
+        return {};
+      }
+
+      return it->get<std::string>();
+    };
+
+    const std::string type = string_field("type");
     if (type.empty())
     {
       nlohmann::json err{
@@ -283,10 +298,10 @@ namespace vix::websocket::http
 
     JsonMessage msg;
     msg.type = type;
-    msg.room = body.value("room", std::string{});
-    msg.kind = body.value("kind", std::string{});
-    msg.id = body.value("id", std::string{});
-    msg.ts = body.value("ts", std::string{});
+    msg.room = string_field("room");
+    msg.kind = body.contains("kind") ? string_field("kind") : msg.kind;
+    msg.id = string_field("id");
+    msg.ts = string_field("ts");
 
     if (body.contains("payload"))
     {

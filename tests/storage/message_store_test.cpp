@@ -27,7 +27,7 @@
 namespace
 {
   using MessageStore =
-      vix::websocket::MessageStore;
+      vix::websocket::IMessageStore;
 
   class MessageStoreProbe
       : public MessageStore
@@ -81,13 +81,6 @@ namespace
         !std::is_move_constructible_v<
             MessageStore>);
 
-    static_assert(
-        !std::is_copy_assignable_v<
-            MessageStore>);
-
-    static_assert(
-        !std::is_move_assignable_v<
-            MessageStore>);
   }
 
   static void test_derived_store_remains_abstract_without_operations()

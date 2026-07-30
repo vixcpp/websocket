@@ -700,6 +700,32 @@ namespace vix::websocket
   {
     co_await ensure_bytes(2);
 
+    const auto byte_at = [](char value) -> std::uint8_t
+    {
+      return static_cast<std::uint8_t>(
+          static_cast<unsigned char>(value));
+    };
+
+    const std::uint8_t b1 = byte_at(readBuffer_[1]);
+    const std::uint8_t len7 = static_cast<std::uint8_t>(b1 & 0x7F);
+    std::size_t header_size = 2;
+
+    if (len7 == 126)
+    {
+      header_size += 2;
+    }
+    else if (len7 == 127)
+    {
+      header_size += 8;
+    }
+
+    if ((b1 & 0x80) != 0)
+    {
+      header_size += 4;
+    }
+
+    co_await ensure_bytes(header_size);
+
     const detail::FrameHeader h =
         detail::parse_frame_header(
             reinterpret_cast<const std::byte *>(readBuffer_.data()),

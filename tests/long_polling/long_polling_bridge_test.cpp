@@ -203,7 +203,7 @@ namespace
     assert(bridge.session_count() == 0u);
     assert(bridge.buffer_size("missing") == 0u);
 
-    assert(&bridge.manager() != nullptr);
+    (void)bridge.manager();
   }
 
   static void test_default_room_resolution()

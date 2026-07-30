@@ -637,7 +637,7 @@ namespace vix::websocket
               j = nullptr;
             }
             else if constexpr (std::is_same_v<T, bool> ||
-                               std::is_same_v<T, long long> ||
+                               std::is_same_v<T, std::int64_t> ||
                                std::is_same_v<T, double> ||
                                std::is_same_v<T, std::string>)
             {

@@ -25,8 +25,28 @@ if (NOT TARGET ${VIX_WEBSOCKET_TEST_TARGET})
 endif()
 
 function(vix_websocket_add_test test_name)
+  set(test_sources)
+
+  foreach(test_source IN LISTS ARGN)
+    if (IS_ABSOLUTE "${test_source}")
+      set(test_source_path "${test_source}")
+    else()
+      set(test_source_path "${CMAKE_CURRENT_SOURCE_DIR}/${test_source}")
+    endif()
+
+    if (EXISTS "${test_source_path}")
+      file(SIZE "${test_source_path}" test_source_size)
+      if (test_source_size EQUAL 0)
+        message(STATUS "[websocket/tests] Skipping placeholder test ${test_name}: ${test_source}")
+        return()
+      endif()
+    endif()
+
+    list(APPEND test_sources "${test_source}")
+  endforeach()
+
   add_executable(${test_name}
-    ${ARGN}
+    ${test_sources}
   )
 
   target_link_libraries(${test_name} PRIVATE
@@ -48,7 +68,7 @@ function(vix_websocket_add_network_test test_name server_port)
     ${ARGN}
   )
 
-  if (BUILD_TESTING)
+  if (BUILD_TESTING AND TARGET ${test_name})
     set_tests_properties(${test_name} PROPERTIES
       TIMEOUT 20
       RUN_SERIAL TRUE

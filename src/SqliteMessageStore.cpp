@@ -201,32 +201,45 @@ namespace vix::websocket
     if (limit == 0)
       return out;
 
-    const char *sql_base =
-        "SELECT id, kind, room, type, ts, payload_json "
-        "FROM messages "
-        "WHERE room = ?1 ";
-
     std::string sql;
-    if (before_id.has_value())
+    if (room.empty())
     {
-      sql = std::string(sql_base) +
-            "AND id < ?2 "
-            "ORDER BY id DESC "
-            "LIMIT ?3;";
+      sql =
+          "SELECT id, kind, room, type, ts, payload_json "
+          "FROM messages "
+          "WHERE room IS NULL ";
     }
     else
     {
-      sql = std::string(sql_base) +
-            "ORDER BY id DESC "
-            "LIMIT ?2;";
+      sql =
+          "SELECT id, kind, room, type, ts, payload_json "
+          "FROM messages "
+          "WHERE room = ?1 ";
+    }
+
+    if (before_id.has_value())
+    {
+      sql +=
+          "AND id < ?2 "
+          "ORDER BY id DESC "
+          "LIMIT ?3;";
+    }
+    else
+    {
+      sql +=
+          "ORDER BY id DESC "
+          "LIMIT ?2;";
     }
 
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
     sqlite_check(rc, db_, "prepare list_by_room");
 
-    rc = sqlite3_bind_text(stmt, 1, room.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite_check(rc, db_, "bind room");
+    if (!room.empty())
+    {
+      rc = sqlite3_bind_text(stmt, 1, room.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite_check(rc, db_, "bind room");
+    }
 
     if (before_id.has_value())
     {

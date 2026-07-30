@@ -66,7 +66,7 @@ namespace
             Router::MessageHandler,
             std::function<void(
                 Session &,
-                const std::string &)>>);
+                std::string)>>);
 
     static_assert(
         std::is_same_v<

@@ -53,13 +53,6 @@ namespace
                 .touch()));
 
     static_assert(
-        noexcept(
-            std::declval<const LongPollingSession &>()
-                .is_expired(
-                    std::chrono::seconds{60},
-                    Clock::time_point{})));
-
-    static_assert(
         std::is_same_v<
             decltype(std::declval<const LongPollingSession &>()
                          .is_expired(

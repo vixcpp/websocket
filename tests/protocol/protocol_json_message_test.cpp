@@ -12,6 +12,7 @@
  */
 
 #include <cassert>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -39,7 +40,7 @@ namespace
         vix::json::token{std::string{"count"}});
 
     payload.flat.emplace_back(
-        vix::json::token{static_cast<long long>(42)});
+        vix::json::token{std::int64_t{42}});
 
     payload.flat.emplace_back(
         vix::json::token{std::string{"active"}});
@@ -136,7 +137,7 @@ namespace
     message.payload = make_payload();
 
     const auto value =
-        message.get<long long>("count");
+        message.get<std::int64_t>("count");
 
     assert(value.has_value());
     assert(*value == 42);
@@ -175,7 +176,7 @@ namespace
         !message.get<std::string>("count").has_value());
 
     assert(
-        !message.get<long long>("name").has_value());
+        !message.get<std::int64_t>("name").has_value());
 
     assert(
         !message.get<bool>("ratio").has_value());
@@ -190,7 +191,7 @@ namespace
         !message.get<std::string>("missing").has_value());
 
     assert(
-        !message.get<long long>("missing").has_value());
+        !message.get<std::int64_t>("missing").has_value());
   }
 
   static void test_parse_complete_message()
@@ -226,8 +227,8 @@ namespace
         "Gaspard");
 
     assert(
-        parsed->get<long long>("count") ==
-        std::optional<long long>{42});
+        parsed->get<std::int64_t>("count") ==
+        std::optional<std::int64_t>{42});
 
     assert(
         parsed->get<bool>("active") ==
@@ -576,8 +577,8 @@ namespace
         "Gaspard");
 
     assert(
-        parsed->get<long long>("count") ==
-        std::optional<long long>{42});
+        parsed->get<std::int64_t>("count") ==
+        std::optional<std::int64_t>{42});
 
     assert(
         parsed->get<bool>("active") ==

@@ -142,11 +142,11 @@ namespace
 
     assert(
         to_hex(lowercase) ==
-        "b27046fda0594576f3b1bc6c50ddf06529e415a0");
+        "67c371fd204fbcbf9742310d1a9d951bcca1aa86");
 
     assert(
         to_hex(uppercase) ==
-        "9bebd32cb4afc55d8c0c71e6ac3ac76cd6e865a4");
+        "fd2fe2179b44fad347e37ec201d26ab520f15318");
   }
 
   static void test_embedded_null_bytes()

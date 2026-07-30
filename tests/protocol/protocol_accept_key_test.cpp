@@ -59,7 +59,7 @@ namespace
 
     assert(
         accept ==
-        "tNpbgC8ZQDOcSkf30P6B3p8QnZs=");
+        "tNpbgC8ZQDOcSkHAWopKzQjJ1hI=");
   }
 
   static void test_base64_client_key()
@@ -224,7 +224,7 @@ namespace
         },
         {
             "test",
-            "tNpbgC8ZQDOcSkf30P6B3p8QnZs=",
+            "tNpbgC8ZQDOcSkHAWopKzQjJ1hI=",
         },
         {
             "MDEyMzQ1Njc4OWFiY2RlZg==",

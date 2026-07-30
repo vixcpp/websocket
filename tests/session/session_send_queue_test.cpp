@@ -432,6 +432,7 @@ namespace
         session,
         context);
 
+    context->stop();
     context->run();
 
     result.output =

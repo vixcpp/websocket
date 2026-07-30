@@ -98,19 +98,11 @@ namespace
 
   static void test_default_constructor()
   {
-    const auto before =
-        Clock::now();
-
     LongPollingSession session;
-
-    const auto after =
-        Clock::now();
 
     assert(session.id.empty());
     assert(session.buffer.empty());
-
-    assert(session.lastSeen >= before);
-    assert(session.lastSeen <= after);
+    assert(session.lastSeen == Clock::time_point{});
   }
 
   static void test_session_id_constructor()
