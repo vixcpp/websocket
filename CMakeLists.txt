@@ -69,6 +69,11 @@ endif()
 # Core dependency
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
 option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
+option(
+  VIX_WEBSOCKET_ENABLE_INSTALL
+  "Enable WebSocket install and export rules"
+  ON
+)
 
 if (NOT TARGET vix::core AND NOT TARGET vix_core)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../core/CMakeLists.txt")
@@ -254,6 +259,7 @@ if (WEBSOCKET_SOURCES)
     EXPORT_NAME websocket
   )
 
+if(VIX_WEBSOCKET_ENABLE_INSTALL)
   install(TARGETS vix_websocket
     EXPORT VixTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -268,6 +274,7 @@ if (WEBSOCKET_SOURCES)
       PATTERN "*.h"
       PATTERN "*.inc"
   )
+endif()
 
 # HEADER-ONLY
 else()
@@ -297,6 +304,7 @@ else()
 
   vix_websocket_try_link_json(vix_websocket INTERFACE)
 
+if(VIX_WEBSOCKET_ENABLE_INSTALL)
   install(TARGETS vix_websocket
     EXPORT VixTargets
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
@@ -307,6 +315,7 @@ else()
       PATTERN "*.hpp"
       PATTERN "*.h"
   )
+endif()
 endif()
 
 # Tests (optional)
@@ -336,6 +345,7 @@ else()
 endif()
 message(STATUS "Core target:          ${VIX_CORE_TARGET}")
 message(STATUS "Utils target:         ${VIX_UTILS_TARGET}")
+message(STATUS "Install/export:       ${VIX_WEBSOCKET_ENABLE_INSTALL}")
 message(STATUS "JSON policy:          ${VIX_WEBSOCKET_WITH_JSON}")
 message(STATUS "Include dir:          ${CMAKE_CURRENT_SOURCE_DIR}/include")
 message(STATUS "Build type:           ${CMAKE_BUILD_TYPE}")
