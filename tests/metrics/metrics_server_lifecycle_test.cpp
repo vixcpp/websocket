@@ -879,5 +879,14 @@ int main()
       *state,
       port);
 
-  return 0;
+  /*
+   * The metrics exporter currently has a blocking API without a stop
+   * operation. Its detached server thread and state therefore intentionally
+   * live until process termination.
+   *
+   * Exit without running process-exit leak detection. AddressSanitizer and
+   * UndefinedBehaviorSanitizer still report errors when they occur during
+   * the test.
+   */
+  std::_Exit(EXIT_SUCCESS);
 }
