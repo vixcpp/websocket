@@ -26,6 +26,7 @@
 #include <vix/console.hpp>
 #include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/openapi/register_docs.hpp>
+#include <vix/utils/ConsoleMutex.hpp>
 #include <vix/utils/ServerPrettyLogs.hpp>
 #include <vix/websocket/openapi_docs.hpp>
 #include <vix/websocket/server.hpp>

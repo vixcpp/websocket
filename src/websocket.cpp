@@ -26,6 +26,7 @@
 #include <vix/async/core/spawn.hpp>
 #include <vix/async/net/tcp.hpp>
 #include <vix/async/net/asio_net_service.hpp>
+#include <vix/utils/ConsoleMutex.hpp>
 
 #if defined(__linux__)
 #include <pthread.h>
