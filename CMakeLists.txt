@@ -75,10 +75,16 @@ option(
   ON
 )
 
+# A standalone WebSocket build may resolve its public dependencies from
+# sibling source directories.  Those targets are not part of WebSocket's
+# export set, so exporting WebSocket alone would create an invalid package.
+set(VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES OFF)
+
 if (NOT TARGET vix::core AND NOT TARGET vix_core)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../core/CMakeLists.txt")
     message(STATUS "[websocket] Adding core from umbrella: ../core")
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+    set(VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES ON)
   elseif (VIX_WEBSOCKET_FETCH_CORE)
     include(FetchContent)
     message(STATUS "[websocket] Fetching vix::core via FetchContent")
@@ -99,6 +105,7 @@ if (NOT TARGET vix::utils AND NOT TARGET vix_utils)
   if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
     message(STATUS "[websocket] Adding utils from umbrella: ../utils")
     add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "${CMAKE_CURRENT_BINARY_DIR}/utils")
+    set(VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES ON)
   elseif (VIX_WEBSOCKET_FETCH_UTILS)
     include(FetchContent)
     message(STATUS "[websocket] Fetching vix::utils via FetchContent")
@@ -112,6 +119,15 @@ if (NOT TARGET vix::utils AND NOT TARGET vix_utils)
       "vix::utils not found. Provide vix::utils before websocket "
       "or enable VIX_WEBSOCKET_FETCH_UTILS=ON.")
   endif()
+endif()
+
+if (
+  VIX_WEBSOCKET_ENABLE_INSTALL
+  AND VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES
+  AND NOT (DEFINED VIX_UMBRELLA_BUILD AND VIX_UMBRELLA_BUILD)
+)
+  message(STATUS "[websocket] Local sibling dependencies detected; skipping standalone package export.")
+  set(VIX_WEBSOCKET_ENABLE_INSTALL OFF)
 endif()
 
 if (TARGET vix::core)
