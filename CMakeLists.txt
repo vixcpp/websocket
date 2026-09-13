@@ -310,6 +310,10 @@ else()
     add_library(vix::ws ALIAS vix_websocket)
   endif()
 
+  set_target_properties(vix_websocket PROPERTIES
+    EXPORT_NAME websocket
+  )
+
   target_compile_features(vix_websocket INTERFACE cxx_std_20)
 
   target_include_directories(vix_websocket INTERFACE
