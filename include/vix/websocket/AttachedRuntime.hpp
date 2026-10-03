@@ -25,9 +25,9 @@
 #include <vix/config/Config.hpp>
 #include <vix/console.hpp>
 #include <vix/executor/RuntimeExecutor.hpp>
+#include <vix/log/ConsoleSync.hpp>
 #include <vix/openapi/register_docs.hpp>
-#include <vix/utils/ConsoleMutex.hpp>
-#include <vix/utils/ServerPrettyLogs.hpp>
+#include <vix/server/ServerReadyPresentation.hpp>
 #include <vix/websocket/openapi_docs.hpp>
 #include <vix/websocket/server.hpp>
 
@@ -65,7 +65,7 @@ namespace vix::websocket
           exec_(std::move(exec)),
           state_(std::make_shared<State>())
     {
-      vix::utils::console_wait_banner();
+      vix::log::console_wait_banner();
       ws_.start();
 
       auto state = state_;
@@ -289,7 +289,7 @@ namespace vix
           info.ws_port = ws.port();
           info.ws_path = "/";
 
-          vix::utils::RuntimeBanner::emit_server_ready(info);
+          vix::server::StartupPresentation::emit_server_ready(info);
         });
 
     app.wait();

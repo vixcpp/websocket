@@ -26,7 +26,8 @@
 #include <vix/async/core/spawn.hpp>
 #include <vix/async/net/tcp.hpp>
 #include <vix/async/net/asio_net_service.hpp>
-#include <vix/utils/ConsoleMutex.hpp>
+#include <vix/log/ConsoleSync.hpp>
+#include <vix/log/Logger.hpp>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -35,7 +36,7 @@
 
 namespace vix::websocket
 {
-  using Logger = vix::utils::Logger;
+  using Logger = vix::log::Logger;
   using vix::async::core::spawn_detached;
 
   namespace
@@ -231,7 +232,7 @@ namespace vix::websocket
   void LowLevelServer::run()
   {
     init_logger_from_env_once();
-    vix::utils::console_wait_banner();
+    vix::log::console_wait_banner();
 
     spawn_detached(*ioContext_, start_server());
     start_io_threads();
@@ -321,7 +322,7 @@ namespace vix::websocket
       ioThreads_.emplace_back(
           [this, i]()
           {
-            vix::utils::console_wait_banner();
+            vix::log::console_wait_banner();
 
             try
             {

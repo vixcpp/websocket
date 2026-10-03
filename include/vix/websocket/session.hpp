@@ -31,7 +31,6 @@
 #include <vix/async/core/task.hpp>
 #include <vix/async/net/tcp.hpp>
 #include <vix/executor/RuntimeExecutor.hpp>
-#include <vix/utils/Logger.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/protocol.hpp>
 #include <vix/websocket/router.hpp>

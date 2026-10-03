@@ -596,6 +596,8 @@ namespace
             "broken pipe",
             "operation canceled",
             "operation cancelled",
+            "canceled",
+            "cancelled",
             "read canceled",
             "read cancelled",
             "write canceled",

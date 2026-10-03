@@ -32,7 +32,7 @@
 #include <vix/config/Config.hpp>
 #include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/json/Simple.hpp>
-#include <vix/utils/Logger.hpp>
+#include <vix/log/Logger.hpp>
 #include <vix/websocket/LongPollingBridge.hpp>
 #include <vix/websocket/protocol.hpp>
 #include <vix/websocket/router.hpp>
@@ -210,8 +210,8 @@ namespace vix::websocket
      */
     void start()
     {
-      vix::utils::Logger::getInstance().log(
-          vix::utils::Logger::Level::Debug,
+      vix::log::Logger::getInstance().log(
+          vix::log::Logger::Level::Debug,
           "[ws] start() called on port {}",
           port());
 

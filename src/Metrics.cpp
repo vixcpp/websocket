@@ -32,7 +32,7 @@
 #include <vix/async/net/tcp.hpp>
 #include <vix/http/Response.hpp>
 #include <vix/http/Status.hpp>
-#include <vix/utils/Logger.hpp>
+#include <vix/log/Logger.hpp>
 
 namespace vix::websocket
 {
@@ -214,8 +214,8 @@ namespace vix::websocket
       }
       catch (const std::exception &e)
       {
-        vix::utils::Logger::getInstance().log(
-            vix::utils::Logger::Level::Debug,
+        vix::log::Logger::getInstance().log(
+            vix::log::Logger::Level::Debug,
             "[ws] metrics client error ({})",
             e.what());
       }
@@ -238,7 +238,7 @@ namespace vix::websocket
                                    std::unique_ptr<tcp_listener> listener,
                                    WebSocketMetrics &metrics)
     {
-      auto &log = vix::utils::Logger::getInstance();
+      auto &log = vix::log::Logger::getInstance();
 
       while (true)
       {
@@ -259,7 +259,7 @@ namespace vix::websocket
             break;
           }
 
-          log.log(vix::utils::Logger::Level::Debug,
+          log.log(vix::log::Logger::Level::Debug,
                   "[ws] metrics accept error ({})",
                   e.what());
         }
@@ -274,7 +274,7 @@ namespace vix::websocket
                                       std::string address,
                                       std::uint16_t port)
     {
-      auto &log = vix::utils::Logger::getInstance();
+      auto &log = vix::log::Logger::getInstance();
 
       tcp_endpoint ep{};
       ep.host = address;
@@ -282,7 +282,7 @@ namespace vix::websocket
 
       co_await listener->async_listen(ep);
 
-      log.log(vix::utils::Logger::Level::Debug,
+      log.log(vix::log::Logger::Level::Debug,
               "[ws] metrics listening {}:{}  (GET /metrics)",
               address,
               port);
@@ -348,7 +348,7 @@ namespace vix::websocket
                                  const std::string &address,
                                  std::uint16_t port)
   {
-    auto &log = vix::utils::Logger::getInstance();
+    auto &log = vix::log::Logger::getInstance();
 
     try
     {
@@ -372,7 +372,7 @@ namespace vix::websocket
     }
     catch (const std::exception &e)
     {
-      log.log(vix::utils::Logger::Level::Error,
+      log.log(vix::log::Logger::Level::Error,
               "[ws] metrics server error ({})",
               e.what());
     }

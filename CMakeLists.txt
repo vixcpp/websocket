@@ -20,13 +20,12 @@
 #
 # Public Dependencies:
 #   - vix::core   (HTTP server, routing, config)
-#   - vix::utils  (logging, small helpers)
+#   - vix::log    (canonical logging contract)
 #   - optional JSON backend (vix::json / vix_json)
 #
 # Options:
 #   - VIX_WEBSOCKET_WITH_JSON  : AUTO|ON|OFF (default: AUTO)
 #   - VIX_WEBSOCKET_FETCH_CORE : Auto-fetch vix::core if missing (default ON)
-#   - VIX_WEBSOCKET_FETCH_UTILS: Auto-fetch vix::utils if missing (default ON)
 #
 # Installation/Export:
 #   - Contributes to the umbrella export-set `VixTargets`
@@ -68,7 +67,6 @@ endif()
 
 # Core dependency
 option(VIX_WEBSOCKET_FETCH_CORE "Auto-fetch vix::core if missing" ON)
-option(VIX_WEBSOCKET_FETCH_UTILS "Auto-fetch vix::utils if missing" ON)
 option(
   VIX_WEBSOCKET_ENABLE_INSTALL
   "Enable WebSocket install and export rules"
@@ -100,27 +98,6 @@ if (NOT TARGET vix::core AND NOT TARGET vix_core)
   endif()
 endif()
 
-# Utils dependency
-if (NOT TARGET vix::utils AND NOT TARGET vix_utils)
-  if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/../utils/CMakeLists.txt")
-    message(STATUS "[websocket] Adding utils from umbrella: ../utils")
-    add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../utils" "${CMAKE_CURRENT_BINARY_DIR}/utils")
-    set(VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES ON)
-  elseif (VIX_WEBSOCKET_FETCH_UTILS)
-    include(FetchContent)
-    message(STATUS "[websocket] Fetching vix::utils via FetchContent")
-    FetchContent_Declare(vix_utils_ext
-      GIT_REPOSITORY https://github.com/vixcpp/utils.git
-      GIT_TAG        dev
-    )
-    FetchContent_MakeAvailable(vix_utils_ext)
-  else()
-    message(FATAL_ERROR
-      "vix::utils not found. Provide vix::utils before websocket "
-      "or enable VIX_WEBSOCKET_FETCH_UTILS=ON.")
-  endif()
-endif()
-
 if (
   VIX_WEBSOCKET_ENABLE_INSTALL
   AND VIX_WEBSOCKET_HAS_LOCAL_DEPENDENCIES
@@ -138,12 +115,20 @@ else()
   message(FATAL_ERROR "[websocket] Core dependency resolution finished but no usable core target was found.")
 endif()
 
-if (TARGET vix::utils)
-  set(VIX_UTILS_TARGET vix::utils)
-elseif (TARGET vix_utils)
-  set(VIX_UTILS_TARGET vix_utils)
+if (TARGET vix::env)
+  set(VIX_WEBSOCKET_ENV_TARGET vix::env)
+elseif (TARGET vix_env)
+  set(VIX_WEBSOCKET_ENV_TARGET vix_env)
 else()
-  message(FATAL_ERROR "[websocket] Utils dependency resolution finished but no usable utils target was found.")
+  message(FATAL_ERROR "[websocket] vix::env is required by the public server readiness presentation header.")
+endif()
+
+if (TARGET vix::log)
+  set(VIX_WEBSOCKET_LOG_TARGET vix::log)
+elseif (TARGET vix_log)
+  set(VIX_WEBSOCKET_LOG_TARGET vix_log)
+else()
+  message(FATAL_ERROR "[websocket] vix::log is required by the public server readiness presentation header.")
 endif()
 
 # JSON linkage policy
@@ -248,7 +233,8 @@ if (WEBSOCKET_SOURCES)
   target_link_libraries(vix_websocket
     PUBLIC
       ${VIX_CORE_TARGET}
-      ${VIX_UTILS_TARGET}
+      ${VIX_WEBSOCKET_ENV_TARGET}
+      ${VIX_WEBSOCKET_LOG_TARGET}
       ${_vix_sqlite_target}
   )
 
@@ -323,7 +309,8 @@ else()
 
   target_link_libraries(vix_websocket INTERFACE
     ${VIX_CORE_TARGET}
-    ${VIX_UTILS_TARGET}
+    ${VIX_WEBSOCKET_ENV_TARGET}
+    ${VIX_WEBSOCKET_LOG_TARGET}
   )
 
   vix_websocket_try_link_json(vix_websocket INTERFACE)
@@ -368,11 +355,9 @@ else()
   message(STATUS "Mode: HEADER-ONLY / no sources")
 endif()
 message(STATUS "Core target:          ${VIX_CORE_TARGET}")
-message(STATUS "Utils target:         ${VIX_UTILS_TARGET}")
 message(STATUS "Install/export:       ${VIX_WEBSOCKET_ENABLE_INSTALL}")
 message(STATUS "JSON policy:          ${VIX_WEBSOCKET_WITH_JSON}")
 message(STATUS "Include dir:          ${CMAKE_CURRENT_SOURCE_DIR}/include")
 message(STATUS "Build type:           ${CMAKE_BUILD_TYPE}")
 message(STATUS "Fetch core enabled:   ${VIX_WEBSOCKET_FETCH_CORE}")
-message(STATUS "Fetch utils enabled:  ${VIX_WEBSOCKET_FETCH_UTILS}")
 message(STATUS "------------------------------------------------------")

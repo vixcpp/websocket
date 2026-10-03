@@ -86,10 +86,6 @@ vix_websocket_add_test(websocket_smoke_test
   websocket_smoke_test.cpp
 )
 
-vix_websocket_add_test(websocket_disconnect_tests
-  websocket_disconnect_tests.cpp
-)
-
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
@@ -562,6 +558,10 @@ vix_websocket_add_network_test(
 
 vix_websocket_add_test(websocket_attached_runtime_constructor_test
   runtime/attached_runtime_constructor_test.cpp
+)
+
+vix_websocket_add_test(websocket_attached_runtime_ready_info_test
+  runtime/attached_runtime_ready_info_test.cpp
 )
 
 vix_websocket_add_network_test(

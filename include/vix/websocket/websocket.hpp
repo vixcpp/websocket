@@ -25,7 +25,6 @@
 #include <vix/async/net/tcp.hpp>
 #include <vix/config/Config.hpp>
 #include <vix/executor/RuntimeExecutor.hpp>
-#include <vix/utils/Logger.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/router.hpp>
 #include <vix/websocket/session.hpp>

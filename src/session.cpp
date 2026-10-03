@@ -30,11 +30,11 @@
 #include <vector>
 
 #include <vix/async/core/spawn.hpp>
-#include <vix/utils/NetworkError.hpp>
+#include <vix/log/Logger.hpp>
 
 namespace vix::websocket
 {
-  using Logger = vix::utils::Logger;
+  using Logger = vix::log::Logger;
   using vix::async::core::spawn_detached;
 
   namespace
@@ -103,6 +103,19 @@ namespace vix::websocket
         const std::string &needle)
     {
       return to_lower_copy(value).find(to_lower_copy(needle)) != std::string::npos;
+    }
+
+    inline bool is_expected_disconnect_message(const std::string &message)
+    {
+      return contains_icase(message, "broken pipe") ||
+             contains_icase(message, "connection reset") ||
+             contains_icase(message, "connection reset by peer") ||
+             contains_icase(message, "operation canceled") ||
+             contains_icase(message, "operation cancelled") ||
+             contains_icase(message, "canceled") ||
+             contains_icase(message, "cancelled") ||
+             contains_icase(message, "end of file") ||
+             contains_icase(message, "eof");
     }
 
     inline DisconnectReason classify_disconnect_reason(const std::string &message)
@@ -835,7 +848,7 @@ namespace vix::websocket
     const DisconnectReason reason =
         classify_disconnect_reason(message);
 
-    if (vix::utils::is_normal_network_disconnect_message(message) ||
+    if (is_expected_disconnect_message(message) ||
         reason == DisconnectReason::ClientClosed ||
         reason == DisconnectReason::ConnectionReset ||
         reason == DisconnectReason::ReadCancelled ||
