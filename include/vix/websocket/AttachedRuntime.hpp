@@ -37,7 +37,7 @@ namespace vix::websocket
    * @brief Runs a WebSocket server alongside an HTTP app, with shared lifecycle.
    *
    * Starts the WebSocket server immediately and coordinates shutdown with the attached HTTP
-   * application.
+   * application. The supplied runtime executor is borrowed: this object never stops it.
    *
    * Important lifecycle rule:
    * - The HTTP shutdown callback only requests an asynchronous stop.
@@ -54,7 +54,7 @@ namespace vix::websocket
      *
      * @param app HTTP application instance.
      * @param ws WebSocket server instance.
-     * @param exec Shared runtime executor.
+     * @param exec Borrowed shared runtime executor. Its caller retains lifecycle authority.
      */
     AttachedRuntime(
         vix::App &app,
@@ -150,8 +150,8 @@ namespace vix::websocket
     /**
      * @brief Perform the final blocking shutdown exactly once.
      *
-     * Finalization order:
-     * 1. stop websocket blocking
+     * Finalization stops the WebSocket server blocking. The supplied executor
+     * is borrowed and remains under caller lifecycle control.
      */
     void finalize_shutdown() noexcept
     {
@@ -175,16 +175,6 @@ namespace vix::websocket
       {
       }
 
-      try
-      {
-        if (exec_)
-        {
-          exec_->stop();
-        }
-      }
-      catch (...)
-      {
-      }
     }
 
   private:
@@ -213,7 +203,7 @@ namespace vix::websocket
     /** @brief Attached WebSocket server. */
     vix::websocket::Server &ws_;
 
-    /** @brief Shared runtime executor. */
+    /** @brief Borrowed runtime executor retained for the attached server graph. */
     std::shared_ptr<vix::executor::RuntimeExecutor> exec_;
 
     /** @brief Shared shutdown state used by callbacks and finalization. */
@@ -253,7 +243,7 @@ namespace vix
    *
    * @param app HTTP application instance.
    * @param ws WebSocket server instance.
-   * @param exec Shared runtime executor.
+   * @param exec Borrowed shared runtime executor. This function does not stop it.
    * @param cfg Core application configuration.
    */
   inline void run_http_and_ws(
@@ -306,7 +296,7 @@ namespace vix
    *
    * @param app HTTP application instance.
    * @param ws WebSocket server instance.
-   * @param exec Shared runtime executor.
+   * @param exec Borrowed shared runtime executor. This function does not stop it.
    * @param port HTTP listening port.
    */
   inline void run_http_and_ws(
@@ -324,9 +314,10 @@ namespace vix
   /**
    * @brief Build and serve a combined HTTP + WebSocket runtime from a config path.
    *
-   * Creates a shared runtime executor, constructs the HTTP app and WebSocket
-   * server, lets the caller configure routes and handlers, then runs both
-   * servers together.
+   * Creates and owns a shared runtime executor, constructs the HTTP app and
+   * WebSocket server, lets the caller configure routes and handlers, then runs
+   * both servers together. The helper stops its executor when orchestration
+   * completes or exits through its configuration/orchestration exception path.
    *
    * @tparam ConfigureFn Callable type.
    * @param configPath Path to the configuration file.
@@ -349,9 +340,18 @@ namespace vix
     vix::App app{exec};
     vix::websocket::Server ws{cfg, exec};
 
-    fn(app, ws);
+    try
+    {
+      fn(app, ws);
+      run_http_and_ws(app, ws, exec, cfg);
+    }
+    catch (...)
+    {
+      exec->stop();
+      throw;
+    }
 
-    run_http_and_ws(app, ws, exec, cfg);
+    exec->stop();
   }
 
   /**

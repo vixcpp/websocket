@@ -55,7 +55,8 @@ namespace vix::websocket
      * @brief Construct a WebSocket app.
      *
      * @param configPath Path to the configuration file.
-     * @param executor Shared runtime executor used by the WebSocket stack.
+     * @param executor Borrowed shared runtime executor used by the WebSocket
+     * stack. The caller retains executor lifecycle authority.
      */
     App(
         const std::string &configPath,
@@ -83,9 +84,9 @@ namespace vix::websocket
     void run_blocking();
 
     /**
-     * @brief Stop the WebSocket app and shared executor.
+     * @brief Stop WebSocket-owned server resources.
      *
-     * Safe to call multiple times.
+     * Safe to call multiple times. This does not stop the borrowed executor.
      */
     void stop() noexcept;
 
@@ -112,7 +113,7 @@ namespace vix::websocket
     /**
      * @brief Access the executor used by the app.
      *
-     * @return Shared runtime executor.
+     * @return Borrowed shared runtime executor.
      */
     [[nodiscard]] std::shared_ptr<vix::executor::RuntimeExecutor> executor() noexcept
     {

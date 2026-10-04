@@ -333,12 +333,10 @@ namespace vix::websocket
       std::unique_ptr<tcp_stream> stream,
       const Config &cfg,
       std::shared_ptr<Router> router,
-      std::shared_ptr<vix::executor::RuntimeExecutor> executor,
       std::shared_ptr<io_context> ioc)
       : stream_(std::move(stream)),
         cfg_(cfg),
         router_(std::move(router)),
-        executor_(std::move(executor)),
         ioc_(std::move(ioc))
   {
     if (!ioc_)

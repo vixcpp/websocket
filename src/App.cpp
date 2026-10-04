@@ -95,15 +95,5 @@ namespace vix::websocket
     {
     }
 
-    try
-    {
-      if (executor_)
-      {
-        executor_->stop();
-      }
-    }
-    catch (...)
-    {
-    }
   }
 } // namespace vix::websocket

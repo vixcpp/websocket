@@ -30,7 +30,6 @@
 #include <vix/async/core/io_context.hpp>
 #include <vix/async/core/task.hpp>
 #include <vix/async/net/tcp.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/protocol.hpp>
 #include <vix/websocket/router.hpp>
@@ -52,9 +51,8 @@ namespace vix::websocket
    * - heartbeat lifecycle
    * - dispatch to the WebSocket router
    *
-   * This implementation is native to Vix and independent of Boost.
-   * It is runtime-based and uses RuntimeExecutor instead of the old
-   * generic threadpool-oriented RuntimeExecutor abstraction.
+   * This implementation is native to Vix and independent of Boost. Its
+   * asynchronous execution is provided by the supplied Async I/O context.
    */
   class Session : public std::enable_shared_from_this<Session>
   {
@@ -65,13 +63,12 @@ namespace vix::websocket
      * @param stream Accepted native TCP stream.
      * @param cfg WebSocket runtime configuration.
      * @param router Event router for open, close, message, and error callbacks.
-     * @param executor Runtime executor used for async scheduling and continuations.
+     * @param ioc Async I/O context used for scheduling and continuations.
      */
     Session(
         std::unique_ptr<tcp_stream> stream,
         const Config &cfg,
         std::shared_ptr<Router> router,
-        std::shared_ptr<vix::executor::RuntimeExecutor> executor,
         std::shared_ptr<io_context> ioc);
 
     ~Session() = default;
@@ -242,9 +239,6 @@ namespace vix::websocket
 
     /** @brief Shared router used for lifecycle and message callbacks. */
     std::shared_ptr<Router> router_;
-
-    /** @brief Runtime executor used by this session. */
-    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
 
     /** @brief Shared async IO context associated with the session runtime. */
     std::shared_ptr<io_context> ioc_{};

@@ -31,9 +31,6 @@ namespace
   using Session =
       vix::websocket::Session;
 
-  using RuntimeExecutor =
-      vix::executor::RuntimeExecutor;
-
   using io_context =
       vix::async::core::io_context;
 
@@ -48,12 +45,6 @@ namespace
 
   static std::shared_ptr<Router>
   null_router()
-  {
-    return {};
-  }
-
-  static std::shared_ptr<RuntimeExecutor>
-  null_executor()
   {
     return {};
   }
@@ -76,7 +67,6 @@ namespace
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     assert(context != nullptr);
@@ -99,7 +89,6 @@ namespace
               tcp_stream>{},
           config,
           null_router(),
-          null_executor(),
           context};
 
       constructed = true;
@@ -132,40 +121,6 @@ namespace
           config,
           std::shared_ptr<
               Router>{},
-          null_executor(),
-          context};
-
-      constructed = true;
-
-      assert(
-          session.is_open() ==
-          false);
-    }
-    catch (...)
-    {
-      assert(false);
-    }
-
-    assert(constructed);
-  }
-
-  static void test_constructor_accepts_null_executor()
-  {
-    Config config;
-
-    const auto context =
-        make_io_context();
-
-    bool constructed = false;
-
-    try
-    {
-      Session session{
-          null_stream(),
-          config,
-          null_router(),
-          std::shared_ptr<
-              RuntimeExecutor>{},
           context};
 
       constructed = true;
@@ -194,7 +149,6 @@ namespace
           null_stream(),
           config,
           null_router(),
-          null_executor(),
           std::shared_ptr<
               io_context>{}};
 
@@ -223,7 +177,6 @@ namespace
           null_stream(),
           config,
           null_router(),
-          null_executor(),
           nullptr};
 
       (void)session;
@@ -255,8 +208,6 @@ namespace
           std::shared_ptr<
               Router>{},
           std::shared_ptr<
-              RuntimeExecutor>{},
-          std::shared_ptr<
               io_context>{}};
 
       (void)session;
@@ -281,7 +232,6 @@ namespace
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     assert(!session.is_open());
@@ -298,21 +248,18 @@ namespace
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     Session second{
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     Session third{
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     assert(context.use_count() == 4);
@@ -334,7 +281,6 @@ namespace
             null_stream(),
             config,
             null_router(),
-            null_executor(),
             context);
 
     assert(session != nullptr);
@@ -354,7 +300,6 @@ namespace
             null_stream(),
             config,
             null_router(),
-            null_executor(),
             context);
 
     const std::shared_ptr<Session> self =
@@ -382,7 +327,6 @@ namespace
             null_stream(),
             config,
             null_router(),
-            null_executor(),
             context);
 
     const std::weak_ptr<Session> weak =
@@ -411,7 +355,6 @@ namespace
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     const std::weak_ptr<Session> weak =
@@ -432,7 +375,6 @@ namespace
         null_stream(),
         config,
         null_router(),
-        null_executor(),
         context};
 
     bool thrown = false;
@@ -468,7 +410,6 @@ namespace
           null_stream(),
           config,
           null_router(),
-          null_executor(),
           std::move(context)};
 
       assert(context == nullptr);
@@ -496,7 +437,6 @@ namespace
           null_stream(),
           config,
           null_router(),
-          null_executor(),
           context};
 
       assert(context != nullptr);
@@ -523,7 +463,6 @@ namespace
           null_stream(),
           config,
           null_router(),
-          null_executor(),
           context};
 
       assert(!session.is_open());
@@ -547,7 +486,6 @@ namespace
               null_stream(),
               config,
               null_router(),
-              null_executor(),
               context);
 
       weak = session;
@@ -567,8 +505,6 @@ int main()
 
   test_constructor_accepts_null_stream();
   test_constructor_accepts_null_router();
-  test_constructor_accepts_null_executor();
-
   test_constructor_rejects_null_io_context();
   test_null_io_context_error_message();
 

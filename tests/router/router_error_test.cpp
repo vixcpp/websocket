@@ -52,7 +52,6 @@ namespace
             std::unique_ptr<TcpStream>{},
             config,
             router,
-            nullptr,
             ioContext)};
   };
 
