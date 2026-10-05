@@ -90,11 +90,9 @@ namespace vix::websocket
 
   LowLevelServer::LowLevelServer(
       vix::config::Config &coreConfig,
-      std::shared_ptr<vix::executor::RuntimeExecutor> executor,
       std::shared_ptr<Router> router)
       : coreConfig_(coreConfig),
         wsConfig_(Config::from_core(coreConfig_)),
-        executor_(std::move(executor)),
         router_(std::move(router)),
         ioContext_(std::make_shared<io_context>()),
         listener_(nullptr),
@@ -105,12 +103,6 @@ namespace vix::websocket
         joinMutex_(),
         threadsJoined_(false)
   {
-    if (!executor_)
-    {
-      throw std::invalid_argument(
-          "vix::websocket::LowLevelServer requires a valid runtime executor");
-    }
-
     const int port =
         get_config_int_fallback(
             coreConfig_,

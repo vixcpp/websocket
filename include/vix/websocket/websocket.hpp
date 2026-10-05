@@ -24,7 +24,6 @@
 #include <vix/async/core/task.hpp>
 #include <vix/async/net/tcp.hpp>
 #include <vix/config/Config.hpp>
-#include <vix/executor/RuntimeExecutor.hpp>
 #include <vix/websocket/config.hpp>
 #include <vix/websocket/router.hpp>
 #include <vix/websocket/session.hpp>
@@ -44,8 +43,8 @@ namespace vix::websocket
    * session lifecycle. This class stays focused on transport and connection
    * orchestration, while message events are delegated to the Router.
    *
-   * This version is runtime-based and uses RuntimeExecutor consistently
-   * across the WebSocket stack.
+   * Execution is provided by the native Async I/O context and transport
+   * facilities.
    */
   class LowLevelServer
   {
@@ -54,12 +53,10 @@ namespace vix::websocket
      * @brief Construct the WebSocket engine.
      *
      * @param coreConfig Core application configuration.
-     * @param executor Shared runtime executor used by async operations.
      * @param router Event router used by sessions.
      */
     LowLevelServer(
         vix::config::Config &coreConfig,
-        std::shared_ptr<vix::executor::RuntimeExecutor> executor,
         std::shared_ptr<Router> router);
 
     /**
@@ -159,9 +156,6 @@ namespace vix::websocket
 
     /** @brief WebSocket-specific resolved configuration. */
     Config wsConfig_;
-
-    /** @brief Shared runtime executor used by the engine. */
-    std::shared_ptr<vix::executor::RuntimeExecutor> executor_;
 
     /** @brief Shared event router used by all sessions. */
     std::shared_ptr<Router> router_;

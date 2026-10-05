@@ -80,7 +80,7 @@ namespace vix::websocket
         : cfg_(cfg),
           executor_(std::move(executor)),
           router_(std::make_shared<Router>()),
-          engine_(cfg_, executor_, router_),
+          engine_(cfg_, router_),
           sessionsMutex_(),
           sessions_(),
           rooms_(),
